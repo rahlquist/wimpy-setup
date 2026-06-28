@@ -39,8 +39,14 @@ host's llama-swap at `http://wimpy.home.lan:8080/v1`.
 - **libggml-cuda** fix: `/etc/ld.so.conf.d/local-lib.conf` contains `/usr/local/lib`
   so llama-server can find its CUDA shared libraries. Without this, every model fails
   with "libggml-cuda.so.0: No such file or directory".
-- **Firewall**: CachyOS ships UFW. `sudo ufw allow in on br0` trusts all VM traffic
+- **Firewall (wimpy)**: CachyOS ships UFW. `sudo ufw allow in on br0` trusts all VM traffic
   on the bridge — do NOT add nftables rules on top of UFW, they fight each other.
+- **Firewall (hermesvm01)**: UFW is the active firewall (ports 22, 8080, 9119 open).
+  The `nftables` package is present (required by `iptables` and `dnsmasq`) but its
+  **service is disabled** — do not enable it. `/etc/nftables.conf` exists and has been
+  corrected to include port 9119, but if the service is re-enabled it will conflict with
+  UFW. The nftables ruleset previously blocked port 9119 with `icmpx admin-prohibited`
+  (2026-06-28 incident).
 - **SSH**: passwordless keys set up wimpy↔hermesvm01 (ed25519, both directions).
 - **HuggingFace CLI**: `huggingface-cli` is deprecated on this system; use `hf`.
 - **All 18 models load cleanly** — see load test results below.
