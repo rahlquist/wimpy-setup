@@ -113,7 +113,8 @@ for this reason. The token is stored by the CLI in `~/.cache/huggingface/`.
 
 ## Network topology
 
-See `NETWORK-DIAGRAM.md` for the host/VM bridge layout and traffic flow.
+See `NETWORK-DIAGRAM.md` for the host/VM bridge layout and traffic flow
+(rendered diagram: `network-diagram.svg`).
 
 ## Files in this project
 

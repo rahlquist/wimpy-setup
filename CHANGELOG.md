@@ -45,4 +45,4 @@ Initial bring-up of wimpy as the bare-metal inference + VM host replacing slug.
 - Removed a stray Hugging Face token file from the tree.
 - `.gitignore` hardened to block `*token*`, `*.env`, `logs/`, and
   `.claude/settings.local.json`.
-- Added `NETWORK-DIAGRAM.md` and this `CHANGELOG.md`.
+- Added `NETWORK-DIAGRAM.md` (with rendered `network-diagram.svg`) and this `CHANGELOG.md`.

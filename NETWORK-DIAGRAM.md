@@ -1,5 +1,13 @@
 # Network topology — wimpy + hermesvm01
 
+![Network topology](network-diagram.svg)
+
+*Rendered diagram above; ASCII version below for terminals / plain-text viewers.*
+
+![Network topology](network-diagram.svg)
+
+*(SVG above; ASCII version below for terminals / plain-text viewers.)*
+
 ```
                     ┌──────────────────────────────────────────┐
                     │            OPNsense router               │
