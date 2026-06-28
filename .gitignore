@@ -1,0 +1,17 @@
+# ── Secrets — NEVER commit ───────────────────────────────────────────────────
+*token*
+*_token
+*.token
+huggyface_token
+*.env
+.env
+
+# ── Machine-specific / generated ─────────────────────────────────────────────
+logs/
+.completed
+.claude/settings.local.json
+
+# ── OS / editor cruft ────────────────────────────────────────────────────────
+.DS_Store
+*.swp
+*~

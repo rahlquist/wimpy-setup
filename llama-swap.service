@@ -1,0 +1,15 @@
+[Unit]
+Description=llama-swap model router (wimpy)
+After=network.target
+
+[Service]
+Type=simple
+User=rahlquist
+ExecStart=/usr/local/bin/llama-swap --config /etc/llama-swap/config.yaml
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
