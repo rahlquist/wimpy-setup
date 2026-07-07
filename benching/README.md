@@ -30,15 +30,18 @@ Three scripts:
 crontab -e
 ```
 
-Add (adjust paths):
+Add — wimpy's real paths (models live in `~/.cache/llama.cpp`; the
+package-managed ROCm `llama-bench` is at `/usr/bin/llama-bench` — do NOT
+point this at `/usr/local/bin/llama-bench`, that was a stale hand-built
+CUDA copy removed during the R9700 migration):
 
 ```
-0 3 * * * TZ=America/New_York /usr/bin/python3 /opt/llama-bench-suite/model_watcher.py \
-    --models-dir /mnt/models \
-    --db /opt/llama-bench-suite/bench.db \
-    --csv /opt/llama-bench-suite/bench_summary.csv \
-    --bench-bin /opt/llama.cpp/build/bin/llama-bench \
-    >> /opt/llama-bench-suite/watcher.log 2>&1
+0 3 * * * TZ=America/New_York /usr/bin/python3 /home/rahlquist/wimpy-setup/benching/model_watcher.py \
+    --models-dir /home/rahlquist/.cache/llama.cpp \
+    --db /home/rahlquist/wimpy-setup/benching/bench.db \
+    --csv /home/rahlquist/wimpy-setup/benching/bench_summary.csv \
+    --bench-bin /usr/bin/llama-bench \
+    >> /home/rahlquist/wimpy-setup/benching/watcher.log 2>&1
 ```
 
 `TZ=America/New_York` on the cron line makes cron itself fire at 3:00 AM
@@ -55,12 +58,12 @@ a separate cron line.
 
 ```
 # benchmark a single file right now, ignoring the time window:
-python3 bench_model.py --model /mnt/models/some-model.Q4_K_M.gguf \
-    --db bench.db --csv bench_summary.csv
+python3 bench_model.py --model ~/.cache/llama.cpp/some-model.Q4_K_M.gguf \
+    --bench-bin /usr/bin/llama-bench --db bench.db --csv bench_summary.csv
 
 # run the full watcher logic right now, ignoring the 3-5am window:
-python3 model_watcher.py --models-dir /mnt/models --db bench.db \
-    --csv bench_summary.csv --force-run
+python3 model_watcher.py --models-dir ~/.cache/llama.cpp --db bench.db \
+    --csv bench_summary.csv --bench-bin /usr/bin/llama-bench --force-run
 ```
 
 ## What gets measured, and why
@@ -153,6 +156,13 @@ column order, alignment, and `avg ± stddev` formatting exactly.
 
 Both modes print to stdout by default, so you can pipe them (e.g. into
 `pbcopy`/`xclip`) straight into a GitHub comment or forum post.
+
+Add `--html` to either mode to generate a self-contained, sortable,
+filterable HTML report instead of a Markdown table (e.g.
+`python3 report.py --db bench.db --all --html --out bench_results.html`).
+`bench_results.html` in this directory is a committed snapshot from a
+real run — regenerate it after new benchmark data comes in rather than
+hand-editing it.
 
 ## Multi-part (sharded) GGUF files
 

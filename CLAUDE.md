@@ -15,9 +15,32 @@ wimpy is a bare-metal inference + VM host. It replaced an older box ("slug").
 A KVM guest **hermesvm01** (192.168.8.249) runs Hermes Agent and reaches this
 host's llama-swap at `http://wimpy.home.lan:8080/v1`.
 
+## GPU migration (2026-07-07): CUDA -> ROCm
+
+The RTX 5060 Ti was removed and an AMD Radeon AI PRO R9700 installed in its
+place (RTX 5060 Ti is expected back "very soon" — see HARDWARE.md for the
+dual-GPU question that raises). This was a two-part fix, not just a driver
+swap — see CHANGELOG.md for the full incident writeup. Short version:
+
+- `llama-server`/`llama-cli` now come from the **pacman packages**
+  `llama-cpp-rocm` + `ggml-rocm`, installed at `/usr/bin/llama-server` etc.
+  This repo's old build-from-source flow (`05-llama-cpp.sh`) is **superseded**
+  by these packages — the script is not currently rewritten for ROCm and
+  should not be treated as the current path (see note under Files below).
+- An orphaned CUDA-only build from the old source-build flow was left behind
+  at `/usr/local/bin`/`/usr/local/lib`, undated-package, silently shadowing
+  the real package via `$PATH` order and an `/etc/ld.so.conf.d/local-lib.conf`
+  entry that put `/usr/local/lib` ahead of `/usr/lib` for the dynamic linker.
+  Both are now removed. **Do not recreate `/etc/ld.so.conf.d/local-lib.conf`**
+  — the old bring-up instructions below referencing it are obsolete precisely
+  because that file caused this incident.
+
 ## The inference stack
 
-- `llama-server` / `llama-cli` built from source with CUDA sm_120 → /usr/local/bin
+- `llama-server` / `llama-cli` — pacman packages `llama-cpp-rocm` + `ggml-rocm`,
+  ROCm/HIP build → `/usr/bin`. Always use the explicit `/usr/bin/llama-server`
+  path in configs/units, never a bare `llama-server` (PATH resolution to a
+  stale build is exactly what broke this last time).
 - `llama-swap` (model router) → /usr/local/bin, systemd service `llama-swap`,
   listens on **0.0.0.0:8080** so the VM can reach it
 - Models downloaded by `download-models.sh` into `~/.cache/llama.cpp/`
@@ -31,14 +54,21 @@ host's llama-swap at `http://wimpy.home.lan:8080/v1`.
   `--model /home/rahlquist/.cache/llama.cpp/<file>.gguf` path (NOT `-hf`).
 - `llama-swap.service` — systemd unit file. Deploy with:
   `sudo cp llama-swap.service /etc/systemd/system/ && sudo systemctl daemon-reload`
-- `05-llama-cpp.sh` etc. — host setup scripts (already run).
+- `05-llama-cpp.sh` — **superseded, needs a rewrite or explicit deprecation
+  note.** It builds llama.cpp from source with CUDA flags; the box now runs
+  the `llama-cpp-rocm`/`ggml-rocm` pacman packages instead. Do not run this
+  script as-is expecting it to produce the binary actually in use.
+- other `0N-*.sh` — host setup scripts (already run).
 
-## System state (as of 2026-06-28)
+## System state (as of 2026-07-07, post ROCm migration)
 
 - **llama-swap** is running and enabled (`sudo systemctl status llama-swap`).
-- **libggml-cuda** fix: `/etc/ld.so.conf.d/local-lib.conf` contains `/usr/local/lib`
-  so llama-server can find its CUDA shared libraries. Without this, every model fails
-  with "libggml-cuda.so.0: No such file or directory".
+- ~~**libggml-cuda fix**: `/etc/ld.so.conf.d/local-lib.conf` contains
+  `/usr/local/lib`...~~ **OBSOLETE AND WRONG — do not do this.** This note
+  described the old CUDA build-from-source setup. That exact file is what
+  caused the 2026-07-07 incident (it shadowed the real ROCm package's
+  libraries with a stale orphaned CUDA build). The file has been removed and
+  must stay removed. See CHANGELOG.md.
 - **Firewall (wimpy)**: CachyOS ships UFW. `sudo ufw allow in on br0` trusts all VM traffic
   on the bridge — do NOT add nftables rules on top of UFW, they fight each other.
 - **Firewall (hermesvm01)**: UFW is the active firewall (ports 22, 8080, 9119 open).
@@ -57,7 +87,16 @@ host's llama-swap at `http://wimpy.home.lan:8080/v1`.
    `cp /path/config /path/$(date +%Y%m%d%H%M%S)-config-filename`
    This applies to /etc/llama-swap/config.yaml and any systemd unit.
 2. **GPU pinning is intentional.** Every model entry sets
-   `CUDA_VISIBLE_DEVICES=0` to exclude the GT 710. Do NOT remove it.
+   `HIP_VISIBLE_DEVICES=0` (env) and `--device ROCm0` (cmd flag) to pin to the
+   R9700 — the GT 710 has no ROCm/CUDA device at all so it isn't even a
+   pinning candidate, but the explicit pin future-proofs against ever adding
+   a second AMD GPU, and `--device` doubles as a hard-fail: if `ROCm0` isn't
+   available, `llama-server` refuses to start instead of silently falling
+   back to CPU (this is how the 2026-07-07 incident's silent-CPU-fallback
+   failure mode got closed — see CHANGELOG.md). Do NOT remove either.
+   (Historical: this used to be `CUDA_VISIBLE_DEVICES=0` back when the RTX
+   5060 Ti was the inference GPU. If it returns, this pinning scheme needs
+   revisiting — see HARDWARE.md.)
 3. **Use local --model paths, not -hf.** The config deliberately points at the
    files download-models.sh already fetched. Do NOT convert entries to `-hf`
    (that triggers a second, separate download).
@@ -67,7 +106,7 @@ host's llama-swap at `http://wimpy.home.lan:8080/v1`.
 5. **Confirm before sudo / service / network changes.** Show the command and
    wait for approval. This is a live inference box.
 6. **Tune one model at a time.** For VRAM fixes, change one value, reload, check
-   `nvidia-smi`, then proceed. No batch edits.
+   `rocm-smi`, then proceed. No batch edits.
 
 ## Standard bring-up sequence
 
@@ -76,12 +115,15 @@ host's llama-swap at `http://wimpy.home.lan:8080/v1`.
 1. Verify model files exist with sane sizes:
    `ls -la ~/.cache/llama.cpp/*.gguf`
    Cross-check against the `--model` paths in llama-swap-config.yaml.
-2. Confirm GPU index: `nvidia-smi --query-gpu=index,name --format=csv`
-   (RTX 5060 Ti must be index 0; if not, flag it — pinning assumes 0.)
-3. **Fix the CUDA library path** (required on fresh installs — llama-server will fail
-   with "libggml-cuda.so.0: No such file or directory" without this):
-   `echo "/usr/local/lib" | sudo tee /etc/ld.so.conf.d/local-lib.conf && sudo ldconfig`
-   Verify: `ldconfig -p | grep libggml-cuda` should return a hit.
+2. Confirm GPU device: `/usr/bin/llama-server --list-devices`
+   (expect `ROCm0: AMD Radeon AI PRO R9700 ...`; pinning assumes `ROCm0`.)
+3. ~~Fix the CUDA library path...~~ **Do NOT do this.** Do not create
+   `/etc/ld.so.conf.d/local-lib.conf` or add `/usr/local/lib` to the linker
+   search path — this is exactly what caused the 2026-07-07 incident (see
+   CHANGELOG.md). The ROCm package's libs live in `/usr/lib` and need no such
+   fix. If `llama-server` reports a missing `libggml-*`/`libllama-*` library,
+   the fix is to (re)install the `llama-cpp-rocm`/`ggml-rocm` pacman packages,
+   not to add a library search path.
 4. **Install the systemd unit** (skip if `/etc/systemd/system/llama-swap.service` exists):
    `sudo cp llama-swap.service /etc/systemd/system/ && sudo systemctl daemon-reload`
 5. Back up then install config:
@@ -92,7 +134,7 @@ host's llama-swap at `http://wimpy.home.lan:8080/v1`.
 7. Verify routing: `curl http://localhost:8080/v1/models`
 8. Test load (start with the small, certain-to-fit model):
    `curl http://localhost:8080/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"qwen3.5-9b-q4","messages":[{"role":"user","content":"Hello in one sentence."}]}'`
-9. Check VRAM with a model loaded: `nvidia-smi`
+9. Check VRAM with a model loaded: `rocm-smi`
 
 ### Additional steps for a new host+VM setup
 
@@ -125,7 +167,18 @@ Note: VMs on this host run fish shell — always wrap remote commands in `bash -
 **Download models** (use `hf`, not `huggingface-cli` — the latter is deprecated):
 `bash download-models.sh`
 
-## Load test results (2026-06-28, all 18 models)
+## Load test results (2026-06-28, all 18 models — pre-migration, RTX 5060 Ti)
+
+**Historical — from the CUDA/RTX 5060 Ti era, kept for the per-model tuning
+notes (quant choices, OOM history).** Not re-verified on the R9700. Post-ROCm-
+migration (2026-07-07) spot checks covered llama3.2-3b, qwen2.5-coder-14b,
+qwen3.5-9b-q4, and qwen3-30b-a3b (MoE) — all confirmed working on GPU via
+`rocm-smi` and `--list-devices`; see CHANGELOG.md. The other 14 models plus
+the 3 legacy entries (`deepseek-coder-v2-lite-instruct-q4-k-m`,
+`ornith-1-0-9b-q8-0`, `gemma4-coding-q6-k`) have not been individually
+re-tested on the R9700 yet — the R9700 has 32 GB vs. the 5060 Ti's 16 GB, so
+any tight-fit / OOM notes below no longer apply as written but haven't been
+revisited.
 
 All 18 models load and respond cleanly in isolation on the RTX 5060 Ti 16 GB.
 
@@ -164,7 +217,7 @@ one-at-a-time request cadence this is not an issue.
   flagged as "tight" but confirmed OK in isolation.
 - MoE models (`qwen3-30b-a3b`, `gemma-4-26b-moe`, `ling-mini-2-*`): use
   `-ngl 99 --n-cpu-moe N`. N is a conservative starting point — lower it to push
-  more experts onto the GPU for speed, watching `nvidia-smi` for headroom.
+  more experts onto the GPU for speed, watching `rocm-smi` for headroom.
   `--n-cpu-moe` counts from the highest-numbered layers down.
 
 ## Verify from the VM (end-to-end)

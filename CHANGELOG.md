@@ -1,5 +1,85 @@
 # Changelog — wimpy-setup
 
+## GPU migration: CUDA (RTX 5060 Ti) -> ROCm (Radeon AI PRO R9700) (2026-07-07)
+
+RTX 5060 Ti was removed and an AMD Radeon AI PRO R9700 installed. An initial
+migration attempt the previous night left the machine with two competing
+llama.cpp installs and the R9700 not actually being used (silent CPU fallback).
+This entry covers the cleanup.
+
+### Root cause
+Two independent bugs compounded:
+1. **Orphaned CUDA-only build.** This repo's old `05-llama-cpp.sh`
+   build-from-source flow had left a CUDA-only llama.cpp build at
+   `/usr/local/bin`/`/usr/local/lib`, owned by no package. The properly
+   ROCm-enabled `llama-cpp-rocm`/`ggml-rocm` pacman packages were installed
+   at `/usr/bin`/`/usr/lib`, but:
+   - `/etc/ld.so.conf.d/local-lib.conf` (added months earlier, specifically
+     *to* help the old CUDA build find its libs) put `/usr/local/lib` ahead
+     of `/usr/lib` in the dynamic linker search path — so even
+     `/usr/bin/llama-server` resolved `libggml*`/`libllama*` to the stale
+     CUDA-only copies instead of the real ROCm ones.
+   - Separately, `/usr/local/bin` preceded `/usr/bin` on `$PATH`, and
+     `llama-swap-config.yaml` invoked bare `llama-server` — so it wasn't even
+     running the package's binary, it was running the orphaned one.
+   - Both problems shared one fix: delete the orphaned `/usr/local` build and
+     the shadowing `ld.so.conf.d` entry.
+2. **NVIDIA driver failure (unrelated, GT 710 display only).** `nvidia-smi`
+   failed; `journalctl -k` showed `NVRM: ... not supported by open nvidia.ko
+   because it does not include the required GPU System Processor (GSP)`. The
+   GT 710 (Kepler, 2014) is hardware-incompatible with the installed
+   `nvidia-open` 610.x driver branch — no current NVIDIA branch supports
+   Kepler; only the legacy 470xx branch does. Lowest-risk fix: let GT 710 fall
+   back to `nouveau` (never used for compute, display-only). This surfaced a
+   second wrinkle: `nouveau` isn't blacklisted in `/etc/modprobe.d` (as
+   initially assumed) but in `/usr/lib/modprobe.d/nvidia-utils.conf`, shipped
+   by the `nvidia-utils` package itself — can't edit a package-owned file
+   directly, so the fix is an `/etc/modprobe.d` override with the same
+   filename (full override, not merge, per modprobe.d(5) search-path rules).
+   **This part of the fix is tracked separately and had not been applied as
+   of this changelog entry** — see HARDWARE.md's "GT 710 display driver
+   status" section for current state.
+
+### What changed
+- Removed: `/usr/local/bin/llama-*` (orphaned CUDA build, keeping
+  `/usr/local/bin/llama-swap` — the unrelated router binary, not part of the
+  orphaned build), `/usr/local/lib/libggml*`/`libllama*`, stray source clones
+  `~/src/llama.cpp` and `~/llama.cpp`, and `/etc/ld.so.conf.d/local-lib.conf`.
+- `llama-swap-config.yaml`: every model's `cmd:` now uses the explicit
+  `/usr/bin/llama-server` path (never bare `llama-server`); every `env:`
+  changed from `CUDA_VISIBLE_DEVICES=0` to `HIP_VISIBLE_DEVICES=0`; every
+  `cmd:` also gained `--device ROCm0` (`-dev ROCm0` for the 3 legacy
+  short-flag entries), which makes a missing/wrong GPU a hard startup failure
+  instead of a silent CPU fallback — proven by testing a bogus device name
+  (refuses to start, exit 1) before setting the real one.
+- Ported 3 legacy model entries (`deepseek-coder-v2-lite-instruct-q4-k-m`,
+  `ornith-1-0-9b-q8-0`, `gemma4-coding-q6-k`) into `llama-swap-config.yaml`
+  from the deployed `/etc/llama-swap/config.yaml` — they existed in
+  production but had drifted out of this repo file at some prior point.
+- Context (65536), `--model` path style, and MoE `--n-cpu-moe` tuning values
+  were left untouched — out of scope for this migration.
+
+### Validation
+Real end-to-end requests (not just "service started") across 4 models/tiers,
+watching `rocm-smi` live during generation:
+| Model | Tier | Peak GPU% | Notes |
+|---|---|---|---|
+| llama3.2-3b | small dense | 94-95% | |
+| qwen2.5-coder-14b | mid dense | 100% | ~13GB VRAM |
+| qwen3-30b-a3b | MoE | 72% | partial CPU offload expected (`--n-cpu-moe 36`) |
+| qwen3.5-9b-q4 | — | 94-96% | same model previously clocked at ~57s in the broken CPU-fallback state; now 1.3s generation time |
+
+`/usr/bin/llama-server --list-devices` confirms `ROCm0: AMD Radeon AI PRO
+R9700 (32624 MiB, 32558 MiB free)`.
+
+### Not yet done
+- GT 710 / nouveau display driver fix (see HARDWARE.md) — requires separate
+  explicit confirmation since it can affect the physical console.
+- The other 14 non-legacy models plus the 3 ported legacy entries haven't
+  been individually re-validated on the R9700 (only spot-checked above); the
+  June 2026 load-test table in CLAUDE.md predates this migration and was run
+  on the RTX 5060 Ti.
+
 ## Build-out (June 2026)
 
 Initial bring-up of wimpy as the bare-metal inference + VM host replacing slug.
