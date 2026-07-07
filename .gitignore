@@ -15,3 +15,9 @@ logs/
 .DS_Store
 *.swp
 *~
+
+# ── benching: generated runtime data, not source ────────────────────────────
+benching/bench.db
+benching/bench_summary.csv
+benching/watcher.log
+*.bak

@@ -157,6 +157,13 @@ column order, alignment, and `avg ± stddev` formatting exactly.
 Both modes print to stdout by default, so you can pipe them (e.g. into
 `pbcopy`/`xclip`) straight into a GitHub comment or forum post.
 
+Add `--html` to either mode to generate a self-contained, sortable,
+filterable HTML report instead of a Markdown table (e.g.
+`python3 report.py --db bench.db --all --html --out bench_results.html`).
+`bench_results.html` in this directory is a committed snapshot from a
+real run — regenerate it after new benchmark data comes in rather than
+hand-editing it.
+
 ## Multi-part (sharded) GGUF files
 
 `model-00001-of-00005.gguf`, `model-00002-of-00005.gguf`, etc. are one

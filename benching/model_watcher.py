@@ -170,8 +170,10 @@ def main():
         log("outside 3:00-5:00 AM ET window, exiting without benchmarking")
         return
 
+    attempted_this_session = set()
+
     while args.force_run or in_window(now_et()):
-        pending = get_pending_models(args.db)
+        pending = [p for p in get_pending_models(args.db) if p not in attempted_this_session]
         if not pending:
             log("no pending models, idling until next rescan")
             time.sleep(args.rescan_interval_seconds)
@@ -181,6 +183,7 @@ def main():
             continue
 
         model_path = pending[0]
+        attempted_this_session.add(model_path)
         if not os.path.exists(model_path):
             log(f"skipping missing file: {model_path}")
             continue

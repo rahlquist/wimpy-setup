@@ -196,9 +196,12 @@ def append_csv_summary(csv_path, conn, model_id, filepath, status, notes):
     by_test, meta = {}, {}
     for test_name, avg_ts, model_type, model_size, model_n_params, gpu_info, ngl, fa in cur.fetchall():
         by_test.setdefault(test_name, avg_ts)
-        meta = {"model_type": model_type, "size_gb": (model_size or 0) / 1e9,
-                "params_b": (model_n_params or 0) / 1e9, "gpu_info": gpu_info,
-                "n_gpu_layers": ngl, "flash_attn": fa}
+        if not meta:
+            # rows are ORDER BY id DESC, so the first row seen is the latest run;
+            # only take metadata from it, not from older historical runs.
+            meta = {"model_type": model_type, "size_gb": (model_size or 0) / 1e9,
+                    "params_b": (model_n_params or 0) / 1e9, "gpu_info": gpu_info,
+                    "n_gpu_layers": ngl, "flash_attn": fa}
 
     file_exists = os.path.exists(csv_path)
     with open(csv_path, "a", newline="") as f:
