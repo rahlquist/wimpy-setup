@@ -73,12 +73,50 @@ watching `rocm-smi` live during generation:
 R9700 (32624 MiB, 32558 MiB free)`.
 
 ### Not yet done
-- GT 710 / nouveau display driver fix (see HARDWARE.md) — requires separate
-  explicit confirmation since it can affect the physical console.
 - The other 14 non-legacy models plus the 3 ported legacy entries haven't
   been individually re-validated on the R9700 (only spot-checked above); the
   June 2026 load-test table in CLAUDE.md predates this migration and was run
   on the RTX 5060 Ti.
+
+## GT 710 / nouveau display driver fix (2026-07-07, follow-up)
+
+Applied the fix described as "not yet done" above, with one incident along
+the way. Full detail in HARDWARE.md's "GT 710 display driver status"; summary
+here for the changelog trail.
+
+- Created `/etc/modprobe.d/nvidia-utils.conf`, overriding the package-shipped
+  `/usr/lib/modprobe.d/nvidia-utils.conf` to drop its blanket `blacklist
+  nouveau` line (kept `blacklist nova_core`/`nova_drm` — unrelated,
+  experimental Rust driver). Ran `sudo mkinitcpio -P` afterward.
+- Applied live via `modprobe` rather than an immediate reboot. `nouveau`
+  bound to the GT 710 correctly at the kernel level (confirmed via
+  `journalctl -k`: `nouveau 0000:04:00.0: NVIDIA GK208B`, `fb0:
+  nouveaudrmfb` registered, `nvidia`/`nvidia-open` backed off cleanly) — but
+  **physical display output broke anyway**. Root cause: `plasmalogin.service`
+  (Plasma/Wayland session) had been running since the prior boot, well
+  before nouveau claimed the device, and doesn't hot-adopt a DRM device that
+  appears underneath an already-running compositor session.
+- `sudo systemctl restart plasmalogin.service` did **not** fix it. A full
+  `sudo reboot` did — nouveau loads before the graphical session starts on a
+  clean boot, so there's no stale state. Confirmed post-reboot: `nouveau`
+  bound at actual boot time (not just live-loaded), `plasmalogin.service`
+  started fresh (`Active: active ... since <post-reboot timestamp>`), display
+  working normally.
+- **Lesson for next time a kernel/DRM-level driver change is needed on this
+  box: reboot immediately after applying, don't try to hot-apply-and-restart-
+  just-the-display-manager.** That intermediate state (correct kernel driver,
+  stale compositor) looks identical to "the fix didn't work" from the
+  physical console and cost real troubleshooting time.
+- Two lines of harmless log noise identified during troubleshooting, not
+  regressions, documented in HARDWARE.md: nouveau's missing video-decode
+  firmware (`msvld: init failed` — no redistributable firmware for this
+  GPU's decode engine, doesn't affect display), and repeating `amdgpu ...
+  Cannot find any crtc or sizes` (R9700 has no display output for KMS to
+  enumerate — expected for a compute-oriented card).
+
+GT 710 display driver fix is now fully applied and confirmed stable across a
+real reboot. No outstanding items from the original ROCm migration remain
+except re-validating the 17 not-yet-individually-tested models above.
 
 ## Build-out (June 2026)
 

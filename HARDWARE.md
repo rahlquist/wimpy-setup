@@ -38,15 +38,35 @@ installed and untouched specifically so this slots back in cleanly.
 ## GT 710 display driver status
 - GT 710 = Kepler, `sm_35` — too old for llama.cpp inference regardless of
   which primary GPU is installed; always excluded from inference.
-- **As of 2026-07-07, GT 710 has no real display driver bound** — it's
-  running on the raw UEFI/GOP framebuffer (`simple-framebuffer`, works but
-  unaccelerated). `nvidia-open` (610.x) cannot drive it: Kepler requires GSP
-  firmware support the open-kernel-module driver doesn't provide for
-  pre-Turing GPUs. `nouveau` would work but is blocked by a `blacklist
-  nouveau` line the `nvidia-utils` package itself ships in
-  `/usr/lib/modprobe.d/nvidia-utils.conf` (not `/etc`). Fix is planned as a
-  separate, explicitly-confirmed step (creating an `/etc/modprobe.d`
-  override) — not yet applied as of this doc update.
+- **As of 2026-07-07, GT 710 runs on `nouveau`**, confirmed bound at actual
+  boot time (not just a live `modprobe`) — `nouveau 0000:04:00.0: NVIDIA
+  GK208B`, registers `fb0: nouveaudrmfb`, and `nvidia`/`nvidia-open` correctly
+  backs off (`NVRM: GPU already bound to nouveau`). `nvidia-open` (610.x)
+  cannot drive this GPU at all: Kepler requires GSP firmware support the
+  open-kernel-module driver doesn't provide for pre-Turing GPUs.
+- Fix: `/etc/modprobe.d/nvidia-utils.conf` overrides the package-shipped
+  `/usr/lib/modprobe.d/nvidia-utils.conf` (which ships a blanket `blacklist
+  nouveau`) to drop just that line, keeping `blacklist nova_core`/`nova_drm`
+  (the experimental Rust driver — unrelated, left alone). `sudo mkinitcpio -P`
+  was run after creating the override so nouveau is available at initramfs
+  time, not just after userspace comes up.
+- **Known gotcha hit during this fix**: applying the override live via
+  `modprobe` without a reboot left the already-running Plasma/Wayland session
+  (`plasmalogin.service`) rendering against stale DRM state from before
+  nouveau claimed the device — display went blank even though the kernel-level
+  fix was already correct. `systemctl restart plasmalogin.service` alone
+  didn't resolve it; a full reboot did (nouveau then loads before the
+  graphical session starts, so there's no stale state to begin with). If this
+  ever needs to be redone, **reboot immediately** rather than trying to hot-
+  apply and restart just the display manager.
+- Harmless, unrelated log noise: `nouveau: Direct firmware load for
+  nouveau/nv106_fuc084* failed`, `msvld: init failed` — nouveau has no
+  redistributable firmware for this GPU's video-decode engine, so hardware
+  video decode isn't available via nouveau. Doesn't affect display output;
+  GT 710's only job here is driving the monitor, not decoding video.
+- Also unrelated, seen repeating in kernel logs, not a regression: `amdgpu
+  0000:09:00.0: [drm] Cannot find any crtc or sizes` — the R9700 is a
+  compute-oriented card with no display output for KMS to enumerate; expected.
 
 ## CUDA notes (historical / for when the RTX 5060 Ti returns)
 - RTX 5060 Ti = Blackwell, `sm_120`
