@@ -1,5 +1,18 @@
 # Changelog — wimpy-setup
 
+## Add fetch-model.sh: single-model download + auto-register (2026-07-08)
+
+`download-models.sh` only ever downloaded the fixed curated list — adding one
+new model meant a manual `hf download` plus hand-editing `llama-swap-config.yaml`.
+`fetch-model.sh` replaces that manual step for the common case: paste a HF
+model-card download line, it downloads, smoke-tests on the real GPU at full
+context (same `--device`/env pin as production, refuses to register anything
+without one), and inserts a validated entry into `llama-swap-config.yaml`
+(structural + YAML-parse checks before writing, backup + auto-restore on
+failure). Deploying to `/etc/llama-swap/config.yaml` is left as a printed
+manual step rather than automatic, consistent with how every other config
+change in this project works.
+
 ## GPU migration: CUDA (RTX 5060 Ti) -> ROCm (Radeon AI PRO R9700) (2026-07-07)
 
 RTX 5060 Ti was removed and an AMD Radeon AI PRO R9700 installed. An initial
