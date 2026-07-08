@@ -215,6 +215,9 @@ def main():
     while args.force_run or in_window(now_et()):
         pending = [p for p in get_pending_models(args.db, current_gpu) if p not in attempted_this_session]
         if not pending:
+            if args.force_run:
+                log("no pending models, force-run batch complete, exiting")
+                break
             log("no pending models, idling until next rescan")
             time.sleep(args.rescan_interval_seconds)
             scan_and_register(args.models_dir, args.db)
