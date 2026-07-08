@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     model_id INTEGER NOT NULL REFERENCES models(id),
     run_time TEXT,
+    date_run INTEGER,    -- unix epoch, same instant as run_time
     build_commit TEXT,
     build_number INTEGER,
     cpu_info TEXT,
@@ -80,7 +81,7 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
 """
 
 CSV_HEADER = [
-    "run_time", "filename", "model_type", "size_gb", "params_b",
+    "run_time", "date_run", "filename", "model_type", "size_gb", "params_b",
     "gpu_info", "n_gpu_layers", "flash_attn",
     "pp512_ts", "tg128_ts", "pp512_d4096_ts", "tg128_d4096_ts",
     "status", "notes",
@@ -90,6 +91,12 @@ CSV_HEADER = [
 def ensure_db(db_path):
     conn = sqlite3.connect(db_path)
     conn.executescript(SCHEMA)
+    # Migration for DBs created before date_run existed (added 2026-07-08).
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(benchmark_runs)")]
+    if "date_run" not in cols:
+        conn.execute("ALTER TABLE benchmark_runs ADD COLUMN date_run INTEGER")
+        conn.execute("UPDATE benchmark_runs SET date_run=? WHERE date_run IS NULL",
+                     (int(time.time()),))
     conn.commit()
     return conn
 
@@ -164,16 +171,17 @@ def test_label(row):
 
 def store_rows(conn, model_id, rows, notes=""):
     now = datetime.now(timezone.utc).isoformat()
+    epoch = int(time.time())
     for row in rows:
         conn.execute(
             """INSERT INTO benchmark_runs
-               (model_id, run_time, build_commit, build_number, cpu_info, gpu_info,
+               (model_id, run_time, date_run, build_commit, build_number, cpu_info, gpu_info,
                 backends, model_type, model_size, model_n_params, n_gpu_layers,
                 flash_attn, n_threads, test_name, n_prompt, n_gen, n_depth,
                 avg_ts, stddev_ts, avg_ns, stddev_ns, notes)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
-                model_id, now, row.get("build_commit"), row.get("build_number"),
+                model_id, now, epoch, row.get("build_commit"), row.get("build_number"),
                 row.get("cpu_info"), row.get("gpu_info"), row.get("backends"),
                 row.get("model_type"), row.get("model_size"), row.get("model_n_params"),
                 row.get("n_gpu_layers"), row.get("flash_attn"), row.get("n_threads"),
@@ -203,6 +211,21 @@ def append_csv_summary(csv_path, conn, model_id, filepath, status, notes):
                     "params_b": (model_n_params or 0) / 1e9, "gpu_info": gpu_info,
                     "n_gpu_layers": ngl, "flash_attn": fa}
 
+    # Migration for CSVs written before date_run existed: rewrite once with
+    # the new column, backfilling existing rows with the migration-time epoch.
+    if os.path.exists(csv_path):
+        with open(csv_path, newline="") as f:
+            first = f.readline()
+        if first.strip() and "date_run" not in first:
+            epoch_now = int(time.time())
+            with open(csv_path, newline="") as f:
+                old_rows = list(csvmod.reader(f))
+            with open(csv_path, "w", newline="") as f:
+                w = csvmod.writer(f)
+                w.writerow(CSV_HEADER)
+                for r in old_rows[1:]:
+                    w.writerow([r[0], epoch_now] + r[1:])
+
     file_exists = os.path.exists(csv_path)
     with open(csv_path, "a", newline="") as f:
         w = csvmod.writer(f)
@@ -210,6 +233,7 @@ def append_csv_summary(csv_path, conn, model_id, filepath, status, notes):
             w.writerow(CSV_HEADER)
         w.writerow([
             datetime.now(timezone.utc).isoformat(),
+            int(time.time()),
             os.path.basename(filepath),
             meta.get("model_type", ""),
             round(meta.get("size_gb", 0), 2),
