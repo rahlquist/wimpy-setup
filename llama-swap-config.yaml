@@ -10,10 +10,18 @@
 #           pinning is even possible for it).
 #           RTX 5060 Ti is temporarily removed pending re-install; this config
 #           targets the R9700 only until that happens.
-# BINARY  : /usr/bin/llama-server (llama-cpp-rocm pacman package). Do NOT use
-#           a bare `llama-server` here — PATH resolution to a stale
-#           /usr/local/bin build is exactly what caused silent CPU fallback
-#           during the CUDA->ROCm migration. Always use the explicit path.
+# BINARY  : /usr/local/bin/llama-server — built from source via 05-llama-cpp.sh
+#           (ROCm/HIP, gfx1201, floats to latest master on each rebuild —
+#           re-run GPU validation after rebuilding). This replaced the
+#           llama-cpp-rocm/ggml-rocm pacman
+#           packages as the single source of truth; if /usr/bin/llama-server
+#           still exists, that's the OLD package build — do not point
+#           anything at it, and remove the packages once this build is
+#           verified working (see CHANGELOG.md). Do NOT use a bare
+#           `llama-server` here either — PATH-resolving to whichever build
+#           happens to be first on $PATH is exactly what caused silent CPU
+#           fallback during the original CUDA->ROCm migration. Always use
+#           the explicit path.
 # GPU PIN : HIP_VISIBLE_DEVICES=0 selects the one ROCm-visible device (the
 #           R9700). Kept explicit even with a single GPU so the pinning
 #           pattern is future-proofed against ever adding a second AMD GPU.
@@ -39,7 +47,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: |
-      /usr/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/Qwen3-Coder-30B-A3B-Instruct-Q5_K_M.gguf
+      /usr/local/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/Qwen3-Coder-30B-A3B-Instruct-Q5_K_M.gguf
       -ngl 99 --device ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -53,7 +61,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: |
-      /usr/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf
+      /usr/local/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf
       -ngl 99 -dev ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja
       --host 127.0.0.1 --port ${PORT}
 
@@ -61,7 +69,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: |
-      /usr/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/ornith-1.0-9b-Q8_0.gguf
+      /usr/local/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/ornith-1.0-9b-Q8_0.gguf
       -ngl 99 -dev ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja
       --chat-template-file /etc/llama-swap/templates/ornith.jinja
       --host 127.0.0.1 --port ${PORT}
@@ -70,7 +78,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: |
-      /usr/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/gemma4-coding-Q6_K.gguf
+      /usr/local/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/gemma4-coding-Q6_K.gguf
       -ngl 99 -dev ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja
       --host 127.0.0.1 --port ${PORT}
 
@@ -82,7 +90,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -92,7 +100,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -102,7 +110,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/Llama-3.2-3B-Instruct-Q4_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -112,7 +120,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/ibm-granite_granite-4.1-8b-Q4_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -122,7 +130,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/ibm-granite_granite-4.1-3b-Q4_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -133,7 +141,7 @@ models:
     env: ["HIP_VISIBLE_DEVICES=0"]
     # Switched from Q8_0 (~15GB) to Q4_K_M (~8GB) — Q8_0 OOMed at 64K on 16GB.
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/phi-4-Q4_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -143,7 +151,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -154,7 +162,7 @@ models:
     env: ["HIP_VISIBLE_DEVICES=0"]
     # Q8_0 (~13GB). Tight at 64K on 16GB; if it OOMs, use a Q4_K_M instead.
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/google_gemma-3-12b-it-Q8_0.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -164,7 +172,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/gemma-4-12B-it-Q4_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -175,7 +183,7 @@ models:
     env: ["HIP_VISIBLE_DEVICES=0"]
     # Legacy (2023). Native context is short; 64K is extrapolated and may degrade.
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/llama-2-7b-chat.Q4_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -186,7 +194,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -196,7 +204,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q6_K.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -206,7 +214,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -220,7 +228,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q4_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 8 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -230,7 +238,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q5_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 8 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -240,7 +248,7 @@ models:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q6_K.gguf
         --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 8 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
@@ -252,7 +260,7 @@ models:
     # 30B MoE, 3B active. Start with high --n-cpu-moe; lower toward ~20 as VRAM
     # allows. Raised batch sizes help CPU+GPU MoE throughput.
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/Qwen3-30B-A3B-Q4_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 36 --device ROCm0
         --batch-size 2048 --ubatch-size 512
@@ -264,7 +272,7 @@ models:
     env: ["HIP_VISIBLE_DEVICES=0"]
     # 26B-A4B MoE (the one from the video). Tune --n-cpu-moe down for speed.
     cmd: >
-      /usr/bin/llama-server
+      /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/google_gemma-4-26B-A4B-it-Q4_K_M.gguf
         --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 30 --device ROCm0
         --batch-size 2048 --ubatch-size 512

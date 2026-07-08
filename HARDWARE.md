@@ -26,14 +26,20 @@ installed and untouched specifically so this slots back in cleanly.
 | nvme0n1p3      | 31 GiB  | Linux swap     |
 
 ## ROCm notes (current inference GPU: R9700)
-- R9700 = RDNA4-class, `gfx1201`. Packages: `llama-cpp-rocm` (b9833-1.1),
-  `ggml-rocm` (0.15.3-3.1) — installed via pacman, not built from source.
-- Binary: `/usr/bin/llama-server` (NOT `/usr/local/bin` — that path was an
-  orphaned CUDA-only build from this repo's old build-from-source flow and
-  was removed during the 2026-07-07 ROCm migration; see CHANGELOG.md).
+- R9700 = RDNA4-class, `gfx1201`. Built from source via `05-llama-cpp.sh`
+  (`-DGGML_HIP=ON -DAMDGPU_TARGETS=gfx1201`), version floats to latest
+  master on each rebuild. As of 2026-07-08 this replaced the
+  `llama-cpp-rocm`/`ggml-rocm` pacman packages used during the initial
+  2026-07-07 migration — see CLAUDE.md's "Stop using pacman for llama.cpp"
+  and CHANGELOG.md for why.
+- Binary: `/usr/local/bin/llama-server`. If `/usr/bin/llama-server` still
+  exists, that's the old pacman package build — remove `llama-cpp-rocm`/
+  `ggml-rocm` once the source build is verified working; don't leave both
+  installed (recreates the exact competing-copies problem from the original
+  migration, just with the paths' roles reversed).
 - GPU pinning: `HIP_VISIBLE_DEVICES=0` + `--device ROCm0` (the latter also
   makes missing-GPU a hard startup failure instead of a silent CPU fallback).
-- Verify device name/index: `/usr/bin/llama-server --list-devices`
+- Verify device name/index: `/usr/local/bin/llama-server --list-devices`
 
 ## GT 710 display driver status
 - GT 710 = Kepler, `sm_35` — too old for llama.cpp inference regardless of

@@ -1,5 +1,53 @@
 # Changelog — wimpy-setup
 
+## Stop using pacman for llama.cpp: rebuild 05-llama-cpp.sh for ROCm/HIP (2026-07-08)
+
+Switched llama.cpp back to a source build (`05-llama-cpp.sh`, rewritten for
+ROCm/HIP) as the single source of truth, replacing the `llama-cpp-rocm`/
+`ggml-rocm` pacman packages installed during the 2026-07-07 migration.
+Reason: explicit control over build flags/version rather than tracking
+whatever a distro package happens to ship — the pacman packages were
+already 10 days / 73 upstream releases behind by the time this was decided.
+
+### What changed
+- `05-llama-cpp.sh`: CUDA flags (`-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120`)
+  replaced with ROCm/HIP (`-DGGML_HIP=ON -DAMDGPU_TARGETS=gfx1201`). Installs
+  to `/usr/local` (same prefix the original CUDA-era script used). Version
+  **floats to latest master** on every run (`git pull --ff-only`) — same
+  behavior the original script had; deliberately not pinned (considered
+  pinning to a fixed release tag, decided against it — see discussion, floats
+  intentionally). Added a hard verification step: refuses to finish unless
+  `--list-devices` reports a `ROCm0` device, rather than assuming the build
+  worked because it compiled.
+- `llama-swap-config.yaml`: all 22 entries (18 original + 3 legacy + the
+  live-tested `qwen3-coder-30b-a3b`) flipped from `/usr/bin/llama-server`
+  (the pacman package path) to `/usr/local/bin/llama-server` (the new
+  source-build path). Header comment rewritten to explain the switch and warn
+  against `/usr/bin/llama-server` if the old packages are still installed.
+- `fetch-model.sh`: `detect_server()` priority flipped — `/usr/local/bin`
+  checked first now (canonical), `/usr/bin` kept only as a fallback in case
+  the source build hasn't been done yet on a given run.
+- `llama-swap.service`: added `-watch-config`, matching what's actually
+  deployed on wimpy (this repo's copy had drifted from production on this
+  one flag; unrelated to the ROCm/pacman question, fixed while touching the
+  file anyway).
+- `CLAUDE.md`/`HARDWARE.md`: updated to describe the source build as
+  canonical; explicit instructions to remove the `llama-cpp-rocm`/
+  `ggml-rocm` packages once the new build is verified, and to never run both
+  installed at once (recreates the exact competing-copies-on-`$PATH`
+  problem from the original migration, just with the two paths' roles
+  reversed).
+
+### Not yet done (as of this entry)
+- Live build + validation on wimpy itself (compiling, confirming
+  `--list-devices` shows `ROCm0`, re-running the real-request +
+  `rocm-smi`-watching validation from the 2026-07-07 migration on at least
+  a couple of models) — this was written and reviewed without live access
+  to the box, same pattern as the original migration script.
+- Actually removing the `llama-cpp-rocm`/`ggml-rocm` pacman packages —
+  deliberately left as a separate, explicit step after the source build is
+  confirmed working, not bundled into the same change.
+
 ## Add fetch-model.sh: single-model download + auto-register (2026-07-08)
 
 `download-models.sh` only ever downloaded the fixed curated list — adding one

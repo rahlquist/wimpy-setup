@@ -61,15 +61,22 @@ command -v hf >/dev/null || die "'hf' not found (pip install -U huggingface_hub)
 # ---- auto-detect llama-server --------------------------------------------
 detect_server(){
   [[ -n "${LLAMA_SERVER:-}" ]] && { echo "$LLAMA_SERVER"; return; }
-  # Prefer the known-correct, package-managed path explicitly over PATH
-  # resolution — PATH shadowing by a stray build is exactly what caused
-  # wimpy's 2026-07-07 ROCm migration incident (see CLAUDE.md). Never trust
-  # a bare `llama-server` first.
+  # Prefer the known-correct, canonical path explicitly over PATH resolution
+  # — PATH shadowing by a stray build is exactly what caused wimpy's
+  # 2026-07-07 ROCm migration incident (see CLAUDE.md). Never trust a bare
+  # `llama-server` first.
+  #
+  # /usr/local/bin is canonical as of the "stop using pacman for llama.cpp"
+  # switch (05-llama-cpp.sh, source build, version-pinned) — see
+  # CHANGELOG.md. If /usr/bin/llama-server still exists, that's the OLD
+  # llama-cpp-rocm package build; it's checked as a fallback only in case
+  # the source build hasn't been done yet on this machine, not preferred.
+  [[ -x /usr/local/bin/llama-server ]] && { echo /usr/local/bin/llama-server; return; }
   [[ -x /usr/bin/llama-server ]] && { echo /usr/bin/llama-server; return; }
   command -v llama-server 2>/dev/null && return
   local p; for p in "$HOME"/llama.cpp/build/bin/llama-server \
       "$HOME"/src/llama.cpp/build/bin/llama-server \
-      /opt/llama.cpp/build/bin/llama-server /usr/local/bin/llama-server; do
+      /opt/llama.cpp/build/bin/llama-server; do
     [[ -x "$p" ]] && { echo "$p"; return; }
   done
 }
