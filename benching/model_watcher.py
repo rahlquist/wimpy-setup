@@ -98,12 +98,49 @@ def scan_and_register(models_dir, db_path):
     return new_count
 
 
-def get_pending_models(db_path):
+def detect_current_gpu(bench_bin, log):
+    """Name of the GPU llama-bench will run on, matching the gpu_info string
+    llama-bench writes to benchmark_runs (e.g. 'AMD Radeon AI PRO R9700').
+    Uses llama-server --list-devices from the same install dir as bench_bin.
+    Returns None if detection fails."""
+    server = os.path.join(os.path.dirname(os.path.abspath(bench_bin)), "llama-server")
+    try:
+        out = subprocess.run([server, "--list-devices"], capture_output=True,
+                             text=True, timeout=60).stdout + ""
+    except (OSError, subprocess.TimeoutExpired) as e:
+        log(f"GPU detection failed ({e}); falling back to status-based selection")
+        return None
+    for line in out.splitlines():
+        m = re.match(r"\s*\w+\d+:\s+(.+?)\s+\(\d+ MiB", line)
+        if m:
+            return m.group(1)
+    log("GPU detection failed (no device line in --list-devices output); "
+        "falling back to status-based selection")
+    return None
+
+
+def get_pending_models(db_path, current_gpu=None):
+    """Models to benchmark tonight. With a detected GPU, a model qualifies
+    only if it has NEVER been benchmarked on that GPU (so a GPU swap
+    automatically re-benchmarks everything, and models already covered on
+    this GPU are never re-run). status pending/failed still qualifies —
+    those are new/changed/never-succeeded files. Existing records are never
+    deleted; re-benchmarks only append new benchmark_runs rows."""
     import sqlite3
     conn = sqlite3.connect(db_path)
-    cur = conn.execute(
-        "SELECT filepath FROM models WHERE status IN ('pending','failed') ORDER BY first_seen ASC"
-    )
+    if current_gpu:
+        cur = conn.execute(
+            """SELECT filepath FROM models m
+               WHERE m.status IN ('pending','failed')
+                  OR NOT EXISTS (SELECT 1 FROM benchmark_runs r
+                                 WHERE r.model_id = m.id AND r.gpu_info = ?)
+               ORDER BY m.first_seen ASC""",
+            (current_gpu,),
+        )
+    else:
+        cur = conn.execute(
+            "SELECT filepath FROM models WHERE status IN ('pending','failed') ORDER BY first_seen ASC"
+        )
     rows = [r[0] for r in cur.fetchall()]
     conn.close()
     return rows
@@ -171,10 +208,16 @@ def main():
         return
 
     attempted_this_session = set()
+    current_gpu = detect_current_gpu(args.bench_bin, log)
+    if current_gpu:
+        log(f"current GPU: {current_gpu} — selecting models never benchmarked on it")
 
     while args.force_run or in_window(now_et()):
-        pending = [p for p in get_pending_models(args.db) if p not in attempted_this_session]
+        pending = [p for p in get_pending_models(args.db, current_gpu) if p not in attempted_this_session]
         if not pending:
+            if args.force_run:
+                log("no pending models, force-run batch complete, exiting")
+                break
             log("no pending models, idling until next rescan")
             time.sleep(args.rescan_interval_seconds)
             scan_and_register(args.models_dir, args.db)

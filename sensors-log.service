@@ -1,0 +1,6 @@
+[Unit]
+Description=Append one wide row of all lm-sensors readings to ~/sensors_log.csv (column per sensor)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/bin/sensors-log.py
