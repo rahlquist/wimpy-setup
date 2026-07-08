@@ -48,8 +48,17 @@ swap — see CHANGELOG.md for the full incident writeup. Short version:
 
 ## Files here
 
-- `download-models.sh` — pulls GGUF models via `hf download` to ~/.cache/llama.cpp/.
-  Continues on failure, prints a failure summary. Repo/filenames verified June 2026.
+- `download-models.sh` — pulls the fixed, curated model list via `hf download` to
+  ~/.cache/llama.cpp/. Continues on failure, prints a failure summary. Repo/filenames
+  verified June 2026. Pure downloader — does NOT touch llama-swap-config.yaml.
+- `fetch-model.sh` — for adding a single new model from a HuggingFace paste
+  (`./fetch-model.sh "hf download hf://owner/repo/file.gguf"`). Downloads, smoke-tests
+  on the real GPU at full context with the same `--device`/env pin as production
+  (refuses to register a model with no GPU pin at all — that's the exact
+  silent-CPU-fallback bug the ROCm migration fixed), then registers it into this repo's
+  `llama-swap-config.yaml` (not the deployed copy — deploying is a printed manual step,
+  since llama-swap runs with `-watch-config` so it's just a `cp`, no restart needed).
+  `-y` to skip the confirmation prompt, `--no-smoke`/`--no-register` to split the steps.
 - `llama-swap-config.yaml` — model definitions. EVERY entry uses an explicit
   `--model /home/rahlquist/.cache/llama.cpp/<file>.gguf` path (NOT `-hf`).
 - `llama-swap.service` — systemd unit file. Deploy with:

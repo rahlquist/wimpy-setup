@@ -35,6 +35,13 @@
 healthCheckTimeout: 180
 
 models:
+  "qwen3-coder-30b-a3b-instruct-q5-k-m":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: |
+      /usr/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/Qwen3-Coder-30B-A3B-Instruct-Q5_K_M.gguf
+      -ngl 99 --device ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
 
   # ══════════════════════════════════════════════════════════════════════════
   #  LEGACY — predate the standardized entry format below. Ported back into
