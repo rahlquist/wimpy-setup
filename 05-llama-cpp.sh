@@ -73,6 +73,7 @@ export HIPCXX="$(hipconfig -l 2>/dev/null)/clang"
 export HIP_PATH="$(hipconfig -R 2>/dev/null)"
 cmake -S "$BUILD_DIR" -B "$BUILD_DIR/build" \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_RPATH=/usr/local/lib \
     -DGGML_HIP=ON \
     -DAMDGPU_TARGETS="$AMDGPU_TARGET" \
     -DLLAMA_BUILD_TESTS=OFF \
@@ -85,18 +86,32 @@ cmake --build "$BUILD_DIR/build" -j "$JOBS"
 log "Installing to /usr/local"
 sudo cmake --install "$BUILD_DIR/build" --prefix /usr/local
 
-/usr/local/bin/llama-server --version 2>/dev/null | head -1 && log "llama-server installed OK"
+/usr/local/bin/llama-server --version 2>&1 | head -1 && log "llama-server installed OK"
 
 # ── Verify the ROCm backend actually loaded, not just that the binary runs ───
 log "Verifying ROCm device is visible to the freshly-built binary"
-if /usr/local/bin/llama-server --list-devices 2>&1 | grep -q '^ROCm0'; then
-    log "  confirmed: $(/usr/local/bin/llama-server --list-devices 2>&1 | grep '^ROCm0')"
+if /usr/local/bin/llama-server --list-devices 2>&1 | grep -q '^ *ROCm0'; then
+    log "  confirmed: $(/usr/local/bin/llama-server --list-devices 2>&1 | grep '^ *ROCm0')"
 else
     err "llama-server built but does NOT report a ROCm0 device — --list-devices output:"
     /usr/local/bin/llama-server --list-devices 2>&1 | sed 's/^/    /' || true
     err "Do not deploy this build. Check the cmake configure log above for GGML_HIP-related warnings."
     exit 1
 fi
+
+# ── Verify the binary links its OWN libs, not a stale copy elsewhere ──────────
+# (llama-server is a thin launcher; without an RPATH it can silently resolve
+# libllama/libggml from /usr/lib if a pacman build is installed — the reversed
+# form of the 2026-07-07 shadowing incident.)
+log "Verifying library resolution (must come from /usr/local/lib)"
+BAD_LIBS=$(ldd /usr/local/bin/llama-server | grep -E 'libllama|libggml|libmtmd' | grep -v '/usr/local/lib' || true)
+if [ -n "$BAD_LIBS" ]; then
+    err "llama-server resolves llama/ggml libraries OUTSIDE /usr/local/lib:"
+    echo "$BAD_LIBS" | sed 's/^/    /'
+    err "The RPATH did not take effect — do not deploy this build."
+    exit 1
+fi
+log "  confirmed: all libllama/libggml/libmtmd resolve from /usr/local/lib"
 
 # ── llama-swap binary ─────────────────────────────────────────────────────────
 # Release asset is a tarball named: llama-swap_<ver>_linux_amd64.tar.gz
@@ -221,8 +236,8 @@ open_firewall_port 8080
 
 log "05-llama-cpp complete"
 info ""
-info "  llama-server : $(/usr/local/bin/llama-server --version 2>/dev/null | head -1)"
-info "  ROCm device  : $(/usr/local/bin/llama-server --list-devices 2>&1 | grep '^ROCm0')"
+info "  llama-server : $(/usr/local/bin/llama-server --version 2>&1 | head -1)"
+info "  ROCm device  : $(/usr/local/bin/llama-server --list-devices 2>&1 | grep '^ *ROCm0')"
 info "  Config       : $SWAP_CFG  ← add model paths, then:"
 info "  Start        : sudo systemctl enable --now llama-swap"
 info "  hermesvm01 connects to : http://wimpy.home.lan:8080/v1"
