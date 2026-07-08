@@ -1,0 +1,22 @@
+[Unit]
+Description=llama.cpp nightly model benchmark watcher
+After=network.target
+
+[Service]
+Type=oneshot
+Environment=TZ=America/New_York
+# Fail loudly if the bench binary is gone (2026-07-08: unit silently pointed
+# at a deleted build tree for a night — never exit 0 with nothing benched).
+ExecStartPre=/usr/bin/test -x /usr/local/bin/llama-bench
+# tee: keep the flat-file log AND send everything to the journal/syslog.
+ExecStart=/bin/bash -o pipefail -c '/usr/bin/python3 /home/rahlquist/Downloads/wimpy-setup/benching/model_watcher.py \
+    --models-dir /home/rahlquist/.cache/llama.cpp \
+    --db /home/rahlquist/Downloads/wimpy-setup/benching/bench.db \
+    --csv /home/rahlquist/Downloads/wimpy-setup/benching/bench_summary.csv \
+    --bench-bin /usr/local/bin/llama-bench 2>&1 | tee -a /home/rahlquist/Downloads/wimpy-setup/benching/watcher.log'
+ExecStart=/bin/bash -o pipefail -c '/usr/bin/python3 /home/rahlquist/Downloads/wimpy-setup/benching/report.py \
+    --db /home/rahlquist/Downloads/wimpy-setup/benching/bench.db \
+    --all --html --out /home/rahlquist/Downloads/wimpy-setup/benching/bench_results.html 2>&1 | tee -a /home/rahlquist/Downloads/wimpy-setup/benching/watcher.log'
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=llama-bench-nightly

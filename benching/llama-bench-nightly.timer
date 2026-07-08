@@ -1,0 +1,11 @@
+[Unit]
+Description=Run llama-bench nightly benchmark at 3:00 AM Eastern Time
+
+[Timer]
+# Fire at 3:00 AM Eastern Time.
+# America/New_York handles EST/EDT daylight-saving automatically.
+OnCalendar=*-*-* 03:00:00 America/New_York
+Persistent=true
+
+[Install]
+WantedBy=timers.target
