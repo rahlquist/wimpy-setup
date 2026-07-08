@@ -35,12 +35,39 @@ swap — see CHANGELOG.md for the full incident writeup. Short version:
   — the old bring-up instructions below referencing it are obsolete precisely
   because that file caused this incident.
 
+## Stop using pacman for llama.cpp (2026-07-08)
+
+Switched back to building llama.cpp from source (`05-llama-cpp.sh`, now
+rewritten for ROCm/HIP) as the single source of truth, superseding the
+`llama-cpp-rocm`/`ggml-rocm` pacman packages from the migration above.
+Reasons: explicit control over build flags/version, consistent with this
+project's general preference for pinned/explicit setups over whatever a
+distro package happens to track, and the pacman packages were already 10
+days / 73 releases behind upstream by the time this was noticed.
+
+- Canonical binary is now `/usr/local/bin/llama-server`, built to
+  `$HOME/src/llama.cpp` with `-DGGML_HIP=ON -DAMDGPU_TARGETS=gfx1201`.
+  Version **floats to latest master** on every run of `05-llama-cpp.sh`
+  (`git pull --ff-only`, same behavior the original CUDA-era script had) —
+  re-run the GPU validation from CHANGELOG.md after any rebuild, don't
+  assume a new build still works.
+- The `llama-cpp-rocm`/`ggml-rocm` pacman packages should be removed once
+  the source build is verified working. **Do not leave both installed** —
+  that recreates the exact competing-copies-on-`$PATH` problem the
+  2026-07-07 migration fixed, just with the roles reversed (`/usr/bin` now
+  the stale one instead of `/usr/local/bin`).
+- If `/usr/bin/llama-server` still exists, that's the old package build.
+  Every config/script in this repo now points at `/usr/local/bin/llama-server`
+  explicitly — `/usr/bin` is never used, but isn't guaranteed empty until
+  the packages are actually removed.
+
 ## The inference stack
 
-- `llama-server` / `llama-cli` — pacman packages `llama-cpp-rocm` + `ggml-rocm`,
-  ROCm/HIP build → `/usr/bin`. Always use the explicit `/usr/bin/llama-server`
-  path in configs/units, never a bare `llama-server` (PATH resolution to a
-  stale build is exactly what broke this last time).
+- `llama-server` / `llama-cli` — built from source via `05-llama-cpp.sh`
+  (ROCm/HIP) → `/usr/local/bin`. Always use the explicit
+  `/usr/local/bin/llama-server` path in configs/units, never a bare
+  `llama-server` (PATH resolution to whichever build happens to be first on
+  `$PATH` is exactly what broke this project twice now).
 - `llama-swap` (model router) → /usr/local/bin, systemd service `llama-swap`,
   listens on **0.0.0.0:8080** so the VM can reach it
 - Models downloaded by `download-models.sh` into `~/.cache/llama.cpp/`
@@ -63,10 +90,13 @@ swap — see CHANGELOG.md for the full incident writeup. Short version:
   `--model /home/rahlquist/.cache/llama.cpp/<file>.gguf` path (NOT `-hf`).
 - `llama-swap.service` — systemd unit file. Deploy with:
   `sudo cp llama-swap.service /etc/systemd/system/ && sudo systemctl daemon-reload`
-- `05-llama-cpp.sh` — **superseded, needs a rewrite or explicit deprecation
-  note.** It builds llama.cpp from source with CUDA flags; the box now runs
-  the `llama-cpp-rocm`/`ggml-rocm` pacman packages instead. Do not run this
-  script as-is expecting it to produce the binary actually in use.
+- `05-llama-cpp.sh` — **canonical build path** (rewritten 2026-07-08 for
+  ROCm/HIP, replacing the earlier pacman-package approach — see "Stop using
+  pacman for llama.cpp" above). Builds llama.cpp from source
+  (`-DGGML_HIP=ON -DAMDGPU_TARGETS=gfx1201`) to `/usr/local/bin`, version
+  floats to latest master each run. Also installs `llama-swap` and the
+  systemd unit. Verifies `--list-devices` reports `ROCm0` before declaring
+  success; refuses to finish otherwise.
 - other `0N-*.sh` — host setup scripts (already run).
 
 ## System state (as of 2026-07-07, post ROCm migration)
@@ -124,15 +154,15 @@ swap — see CHANGELOG.md for the full incident writeup. Short version:
 1. Verify model files exist with sane sizes:
    `ls -la ~/.cache/llama.cpp/*.gguf`
    Cross-check against the `--model` paths in llama-swap-config.yaml.
-2. Confirm GPU device: `/usr/bin/llama-server --list-devices`
+2. Confirm GPU device: `/usr/local/bin/llama-server --list-devices`
    (expect `ROCm0: AMD Radeon AI PRO R9700 ...`; pinning assumes `ROCm0`.)
 3. ~~Fix the CUDA library path...~~ **Do NOT do this.** Do not create
    `/etc/ld.so.conf.d/local-lib.conf` or add `/usr/local/lib` to the linker
    search path — this is exactly what caused the 2026-07-07 incident (see
-   CHANGELOG.md). The ROCm package's libs live in `/usr/lib` and need no such
-   fix. If `llama-server` reports a missing `libggml-*`/`libllama-*` library,
-   the fix is to (re)install the `llama-cpp-rocm`/`ggml-rocm` pacman packages,
-   not to add a library search path.
+   CHANGELOG.md), and it's doubly pointless now: `/usr/local/lib` is where
+   the *current* build's libs already live natively. If `llama-server`
+   reports a missing `libggml-*`/`libllama-*` library, the fix is to re-run
+   `05-llama-cpp.sh`, not to add a library search path.
 4. **Install the systemd unit** (skip if `/etc/systemd/system/llama-swap.service` exists):
    `sudo cp llama-swap.service /etc/systemd/system/ && sudo systemctl daemon-reload`
 5. Back up then install config:

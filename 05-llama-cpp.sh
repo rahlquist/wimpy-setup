@@ -1,11 +1,27 @@
 #!/usr/bin/env bash
-# 05-llama-cpp.sh — build llama.cpp (CUDA sm_120) + install llama-swap
+# 05-llama-cpp.sh — build llama.cpp (ROCm/HIP, R9700) from source + install llama-swap
 #
-# Hardware: RTX 5060 Ti (GB206, sm_120) = inference GPU
-#           GT 710 (GK208B, sm_35)      = display only, excluded via CUDA_VISIBLE_DEVICES
+# Hardware: AMD Radeon AI PRO R9700 (Navi 48, gfx1201, 32GB) = inference GPU
+#           NVIDIA GT 710 (GK208B)  = display only, driven by nouveau (not
+#           ROCm/CUDA-visible at all, so no exclusion flag is even needed)
+#
+# This REPLACES the llama-cpp-rocm/ggml-rocm pacman packages as the single
+# source of truth for llama.cpp on this box (see CHANGELOG.md's "stop using
+# pacman for llama.cpp" entry for why). If those packages are still
+# installed when you run this, remove them afterward once the source build
+# is verified working — do NOT run both, that recreates the exact
+# competing-copies problem the 2026-07-07 ROCm migration fixed. This script
+# does not remove them itself; that's a deliberate separate step.
+#
+# Version floats to the tip of master on every run (git pull --ff-only) —
+# same behavior as the original CUDA-era version of this script. Each
+# rebuild can land on a different upstream commit; llama.cpp tags builds
+# very frequently (dozens per week), so re-run the GPU validation from
+# CHANGELOG.md after any rebuild rather than assuming it still works.
 #
 # llama-swap listens on 0.0.0.0:8080 so hermesvm01 can reach it over br0.
-# Verify GPU indices after install: nvidia-smi --query-gpu=index,name --format=csv
+# Verify GPU after install: /usr/local/bin/llama-server --list-devices
+# (expect "ROCm0: AMD Radeon AI PRO R9700 ...")
 
 set -euo pipefail
 
@@ -13,29 +29,32 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 detect_os
 
-step "05 — llama.cpp (CUDA sm_120) + llama-swap"
+step "05 — llama.cpp (ROCm/HIP, gfx1201) + llama-swap"
 require_root_or_sudo
 
 BUILD_DIR="$HOME/src/llama.cpp"
 JOBS="$(nproc)"
+AMDGPU_TARGET="${AMDGPU_TARGET:-gfx1201}"  # R9700 = Navi 48 = gfx1201; override if hardware changes
 
-# ── CUDA toolkit ──────────────────────────────────────────────────────────────
-log "Checking CUDA toolkit"
-if ! command -v nvcc &>/dev/null; then
-    warn "nvcc not found — installing cuda"
+# ── ROCm/HIP toolchain ───────────────────────────────────────────────────────
+log "Checking ROCm/HIP toolchain"
+if ! command -v hipcc &>/dev/null || [[ ! -d /opt/rocm ]]; then
+    warn "hipcc / /opt/rocm not found — installing rocm-hip-sdk"
     case "$PKG_MANAGER" in
-        pacman) sudo pacman -S --needed --noconfirm cuda ;;
-        *)      err "Install CUDA toolkit manually from https://developer.nvidia.com/cuda-downloads"; exit 1 ;;
+        pacman) sudo pacman -S --needed --noconfirm rocm-hip-sdk rocm-hip-runtime ;;
+        *)      err "Install the ROCm HIP SDK manually: https://rocm.docs.amd.com/"; exit 1 ;;
     esac
 fi
-log "  nvcc: $(nvcc --version | grep 'release' | awk '{print $6}' | tr -d ',')"
+log "  hipcc: $(hipcc --version 2>/dev/null | head -1 || echo present)"
 
 # ── GPU inventory ─────────────────────────────────────────────────────────────
-log "GPU inventory (verify index 0 is the RTX 5060 Ti):"
-nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader 2>/dev/null \
-    | while IFS=',' read -r idx name vram; do
-        info "  GPU ${idx} :$(echo "$name" | xargs) —$(echo "$vram" | xargs)"
-    done
+log "GPU inventory (verify the R9700 shows up as a ROCm agent):"
+if command -v rocminfo &>/dev/null; then
+    rocminfo 2>/dev/null | grep -A1 'Marketing Name' | grep -v '^--' \
+        | paste -d' ' - - | sed 's/^/  /' || true
+else
+    warn "rocminfo not found — GPU inventory check skipped, continuing anyway"
+fi
 
 # ── Clone / update ────────────────────────────────────────────────────────────
 if [[ -d "$BUILD_DIR/.git" ]]; then
@@ -46,24 +65,53 @@ else
     mkdir -p "$(dirname "$BUILD_DIR")"
     git clone https://github.com/ggml-org/llama.cpp.git "$BUILD_DIR"
 fi
+log "  llama.cpp @ $(git -C "$BUILD_DIR" describe --tags --always)"
 
 # ── Build ─────────────────────────────────────────────────────────────────────
-log "Configuring cmake — CUDA sm_120 (Blackwell / RTX 5060 Ti)"
+log "Configuring cmake — ROCm/HIP, target $AMDGPU_TARGET (R9700)"
+export HIPCXX="$(hipconfig -l 2>/dev/null)/clang"
+export HIP_PATH="$(hipconfig -R 2>/dev/null)"
 cmake -S "$BUILD_DIR" -B "$BUILD_DIR/build" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DGGML_CUDA=ON \
-    -DCMAKE_CUDA_ARCHITECTURES=120 \
+    -DCMAKE_INSTALL_RPATH=/usr/local/lib \
+    -DGGML_HIP=ON \
+    -DAMDGPU_TARGETS="$AMDGPU_TARGET" \
     -DLLAMA_BUILD_TESTS=OFF \
     -DLLAMA_BUILD_EXAMPLES=ON \
     -DLLAMA_SERVER_VERBOSE=OFF
 
-log "Building with $JOBS jobs"
+log "Building with $JOBS jobs (ROCm builds are slower than CUDA — this will take a while)"
 cmake --build "$BUILD_DIR/build" -j "$JOBS"
 
 log "Installing to /usr/local"
 sudo cmake --install "$BUILD_DIR/build" --prefix /usr/local
 
-llama-server --version 2>/dev/null | head -1 && log "llama-server installed OK"
+/usr/local/bin/llama-server --version 2>&1 | head -1 && log "llama-server installed OK"
+
+# ── Verify the ROCm backend actually loaded, not just that the binary runs ───
+log "Verifying ROCm device is visible to the freshly-built binary"
+if /usr/local/bin/llama-server --list-devices 2>&1 | grep -q '^ *ROCm0'; then
+    log "  confirmed: $(/usr/local/bin/llama-server --list-devices 2>&1 | grep '^ *ROCm0')"
+else
+    err "llama-server built but does NOT report a ROCm0 device — --list-devices output:"
+    /usr/local/bin/llama-server --list-devices 2>&1 | sed 's/^/    /' || true
+    err "Do not deploy this build. Check the cmake configure log above for GGML_HIP-related warnings."
+    exit 1
+fi
+
+# ── Verify the binary links its OWN libs, not a stale copy elsewhere ──────────
+# (llama-server is a thin launcher; without an RPATH it can silently resolve
+# libllama/libggml from /usr/lib if a pacman build is installed — the reversed
+# form of the 2026-07-07 shadowing incident.)
+log "Verifying library resolution (must come from /usr/local/lib)"
+BAD_LIBS=$(ldd /usr/local/bin/llama-server | grep -E 'libllama|libggml|libmtmd' | grep -v '/usr/local/lib' || true)
+if [ -n "$BAD_LIBS" ]; then
+    err "llama-server resolves llama/ggml libraries OUTSIDE /usr/local/lib:"
+    echo "$BAD_LIBS" | sed 's/^/    /'
+    err "The RPATH did not take effect — do not deploy this build."
+    exit 1
+fi
+log "  confirmed: all libllama/libggml/libmtmd resolve from /usr/local/lib"
 
 # ── llama-swap binary ─────────────────────────────────────────────────────────
 # Release asset is a tarball named: llama-swap_<ver>_linux_amd64.tar.gz
@@ -122,13 +170,16 @@ if [[ ! -f "$SWAP_CFG" ]]; then
 # /etc/llama-swap/config.yaml — wimpy
 #
 # GPU layout:
-#   0 = RTX 5060 Ti (16 GB) — inference
-#   1 = GT 710              — display only
+#   R9700 (32GB, ROCm)  — inference
+#   GT 710              — display only, driven by nouveau, not ROCm/CUDA-visible
 #
-# CUDA_VISIBLE_DEVICES=0 excludes the GT 710.
+# HIP_VISIBLE_DEVICES=0 + --device ROCm0 pin every model to the R9700.
+# --device also makes a missing/wrong GPU a hard startup failure instead of
+# a silent CPU fallback — do not drop it, see CHANGELOG.md's 2026-07-07 entry
+# for exactly what happens when GPU pinning is missing.
 # llama-swap listens on 0.0.0.0:8080 — reachable from hermesvm01 over br0.
 #
-# Verify GPU indices: nvidia-smi --query-gpu=index,name --format=csv
+# Verify GPU: /usr/local/bin/llama-server --list-devices
 
 healthCheckTimeout: 120
 
@@ -138,13 +189,13 @@ models:
 
   # qwen2.5-coder-14b:
   #   ttl: 300
-  #   env:
-  #     CUDA_VISIBLE_DEVICES: "0"
+  #   env: ["HIP_VISIBLE_DEVICES=0"]
   #   cmd: >
-  #     llama-server
+  #     /usr/local/bin/llama-server
   #       --model /path/to/qwen2.5-coder-14b-instruct-q8_0.gguf
   #       --ctx-size 65536
   #       --n-gpu-layers 99
+  #       --device ROCm0
   #       --flash-attn
   #       --cache-type-k q4_0
   #       --cache-type-v q4_0
@@ -167,8 +218,7 @@ After=network.target
 [Service]
 Type=simple
 User=${SVCUSER}
-Environment=CUDA_VISIBLE_DEVICES=0
-ExecStart=/usr/local/bin/llama-swap --config /etc/llama-swap/config.yaml
+ExecStart=/usr/local/bin/llama-swap --config /etc/llama-swap/config.yaml -watch-config
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -186,7 +236,12 @@ open_firewall_port 8080
 
 log "05-llama-cpp complete"
 info ""
-info "  llama-server : $(llama-server --version 2>/dev/null | head -1)"
+info "  llama-server : $(/usr/local/bin/llama-server --version 2>&1 | head -1)"
+info "  ROCm device  : $(/usr/local/bin/llama-server --list-devices 2>&1 | grep '^ *ROCm0')"
 info "  Config       : $SWAP_CFG  ← add model paths, then:"
 info "  Start        : sudo systemctl enable --now llama-swap"
 info "  hermesvm01 connects to : http://wimpy.home.lan:8080/v1"
+info ""
+info "  If llama-cpp-rocm/ggml-rocm pacman packages are still installed,"
+info "  remove them once you've verified this build works — see"
+info "  CHANGELOG.md. Do not leave both installed."

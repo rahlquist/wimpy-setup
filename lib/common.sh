@@ -131,7 +131,18 @@ open_firewall_port() {
         return 0
     fi
 
-    # Path 2: nftables — create table/chain if absent, then add rule
+    # Path 2: UFW (CachyOS ships it). MUST come before the raw-nftables path:
+    # UFW uses iptables-nft, and adding our own nftables table / enabling
+    # nftables.service alongside it causes the rule-fighting incidents in
+    # CHANGELOG.md. ufw allow is idempotent.
+    if command -v ufw &>/dev/null && sudo ufw status 2>/dev/null | grep -q "^Status: active"; then
+        [[ -n "$bridge" ]] && sudo ufw allow in on "$bridge" 2>/dev/null || true
+        sudo ufw allow "${port}/tcp" 2>/dev/null || true
+        log "ufw: ${port}/tcp allowed"
+        return 0
+    fi
+
+    # Path 3: nftables — create table/chain if absent, then add rule
     if command -v nft &>/dev/null; then
         if ! sudo nft list table inet filter &>/dev/null; then
             sudo nft add table inet filter 2>/dev/null || true
