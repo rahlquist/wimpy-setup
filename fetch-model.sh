@@ -229,7 +229,13 @@ smoke_test(){
   gen="$(curl -s --max-time 30 "http://127.0.0.1:$SMOKE_PORT/completion" -H 'Content-Type: application/json' \
         -d '{"prompt":"def add(a,b):\n    return","n_predict":12,"temperature":0}' \
         | python3 -c 'import sys,json;print(json.load(sys.stdin).get("content","").strip()[:60])' 2>/dev/null||true)"
-  offload="$(grep -iE 'offload.*layers|layers.*(to|on).*gpu' "$SMOKE_LOG"|grep -oE '[0-9]+/[0-9]+'|tail -1||true)"
+  # Broadened on purpose: llama.cpp's exact offload-summary phrasing has
+  # varied across builds/backends (dense vs. MoE models log this
+  # differently), so this matches any line mentioning offload or gpu that
+  # contains an N/M count, rather than requiring one specific sentence
+  # shape. Still just a heuristic confirmation on top of the real check
+  # below (rocm-smi/nvidia-smi VRAM usage), not the source of truth.
+  offload="$(grep -iE 'offload|gpu' "$SMOKE_LOG"|grep -oE '[0-9]+/[0-9]+'|tail -1||true)"
   nctx="$(grep -oE 'n_ctx[^=]*= *[0-9]+' "$SMOKE_LOG"|tail -1||true)"
   echo; ok "loaded and healthy at ctx=$CTX on $GPU_DEVICE"
   [[ -n "$offload" ]] && info "layers: $offload" || warn "couldn't confirm offload from log"
@@ -286,9 +292,19 @@ if [[ ! -w "$(dirname "$CONFIG")" || ( -e "$CONFIG" && ! -w "$CONFIG" ) ]]; then
   WRITE="sudo"; info "config dir is root-owned — using sudo for the backup + edit."
 fi
 
-# Standing rule: back up a working config before touching it.
-BACKUP="$(dirname "$CONFIG")/$(date +%Y%m%d%H%M%S)-$(basename "$CONFIG")"
-$WRITE cp "$CONFIG" "$BACKUP"; ok "backed up -> $BACKUP"
+# Standing rule: back up a working config before touching it — unless it's
+# git-tracked, in which case git itself is already the backup and a
+# timestamped copy is just repo clutter (restore via `git checkout` instead).
+GIT_TRACKED=0
+if git -C "$(dirname "$CONFIG")" ls-files --error-unmatch "$(basename "$CONFIG")" >/dev/null 2>&1; then
+  GIT_TRACKED=1
+fi
+if [[ "$GIT_TRACKED" -eq 1 ]]; then
+  info "config is git-tracked — skipping timestamped backup file (git history covers it)."
+else
+  BACKUP="$(dirname "$CONFIG")/$(date +%Y%m%d%H%M%S)-$(basename "$CONFIG")"
+  $WRITE cp "$CONFIG" "$BACKUP"; ok "backed up -> $BACKUP"
+fi
 
 CMDFILE="$(mktemp /tmp/fetch-model.cmd.XXXXXX)"; printf '%s\n' "$CMD_BLOCK" > "$CMDFILE"
 set +e
@@ -376,8 +392,15 @@ case "$rc" in
     fi
     exit 0;;
   3) warn "model id '$NAME' already present — config untouched. Use -n for another id."
-     $WRITE rm -f "$BACKUP"; exit 0;;     # nothing changed; drop the redundant backup
-  *) err "insert/validate failed (code $rc) — restoring backup."
-     $WRITE cp "$BACKUP" "$CONFIG"
-     warn "restored from $BACKUP. Add manually instead:"; print_snippet; exit 1;;
+     [[ "$GIT_TRACKED" -eq 0 ]] && $WRITE rm -f "$BACKUP"   # nothing changed; drop the redundant backup
+     exit 0;;
+  *) err "insert/validate failed (code $rc) — restoring."
+     if [[ "$GIT_TRACKED" -eq 1 ]]; then
+       git -C "$(dirname "$CONFIG")" checkout -- "$(basename "$CONFIG")"
+       warn "restored via git checkout. Add manually instead:"
+     else
+       $WRITE cp "$BACKUP" "$CONFIG"
+       warn "restored from $BACKUP. Add manually instead:"
+     fi
+     print_snippet; exit 1;;
 esac
