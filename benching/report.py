@@ -90,6 +90,7 @@ def render_table(rows, columns):
 
 
 COLUMNS_SINGLE = [
+    ("date", "date", "l"),
     ("model", "model", "l"),
     ("size", "size", "r"),
     ("params", "params", "r"),
@@ -110,23 +111,17 @@ def test_sort_key(name):
     return TEST_ORDER.get(name, 2), name
 
 
-def fetch_latest_run_ids(conn, model_id=None):
-    """Return the most recent run_time's benchmark_runs rows per model
-    (so a comparison report reflects each model's latest numbers, not
-    every historical run)."""
-    q = """
-        SELECT br.* FROM benchmark_runs br
-        INNER JOIN (
-            SELECT model_id, MAX(run_time) AS max_time
-            FROM benchmark_runs
-            {where}
-            GROUP BY model_id
-        ) latest ON br.model_id = latest.model_id AND br.run_time = latest.max_time
-        ORDER BY br.model_id, br.id
-    """
+def fetch_runs(conn, model_id=None):
+    """Return ALL benchmark_runs rows (optionally for one model). History is
+    append-only and every run is shown — runs are told apart by the date
+    column (2026-07-08: previously only each model's latest run was shown,
+    which hid results from earlier GPU configs)."""
     where = "WHERE model_id = ?" if model_id else ""
     conn.row_factory = sqlite3.Row
-    cur = conn.execute(q.format(where=where), (model_id,) if model_id else ())
+    cur = conn.execute(
+        f"SELECT * FROM benchmark_runs {where} ORDER BY model_id, id",
+        (model_id,) if model_id else (),
+    )
     return cur.fetchall()
 
 
@@ -138,7 +133,15 @@ def build_rows(conn, db_rows, include_file):
 
     rows = []
     for r in db_rows:
+        keys = r.keys()
+        epoch = r["date_run"] if "date_run" in keys and r["date_run"] else None
+        if epoch:
+            from datetime import datetime
+            date_str = datetime.fromtimestamp(epoch).strftime("%Y-%m-%d")
+        else:
+            date_str = (r["run_time"] or "")[:10]
         row = {
+            "date": date_str,
             "model": r["model_type"] or "",
             "size": fmt_size(r["model_size"]),
             "params": fmt_params(r["model_n_params"]),
@@ -148,6 +151,7 @@ def build_rows(conn, db_rows, include_file):
             "test": r["test_name"] or "",
             "ts": fmt_ts(r["avg_ts"], r["stddev_ts"]),
             "_sort_test": test_sort_key(r["test_name"] or ""),
+            "_date_run": epoch or 0,
             "_model_id": r["model_id"],
             "_size_bytes": r["model_size"] or 0,
             "_params_n": r["model_n_params"] or 0,
@@ -157,7 +161,7 @@ def build_rows(conn, db_rows, include_file):
             row["file"] = filenames.get(r["model_id"], "")
         rows.append(row)
 
-    rows.sort(key=lambda r: (r.get("file", ""), r["_model_id"], r["_sort_test"]))
+    rows.sort(key=lambda r: (r.get("file", ""), r["_model_id"], r["_date_run"], r["date"], r["_sort_test"]))
     return rows
 
 
@@ -215,6 +219,7 @@ const ROWS=__DATA_JSON__;
 const GENERATED=__GENERATED__;
 const COLS=[
   {k:"file",   label:"file",   cls:"file",num:false,fn:r=>r.file},
+  {k:"date",   label:"date",   cls:"",    num:true, fn:r=>r.date_run},
   {k:"model",  label:"model",  cls:"",    num:false,fn:r=>r.model},
   {k:"size",   label:"size",   cls:"r",   num:true, fn:r=>r.size_bytes},
   {k:"params", label:"params", cls:"r",   num:true, fn:r=>r.params_n},
@@ -265,7 +270,7 @@ function render(){
   }
   let prev="";
   rows.forEach(r=>{
-    const g=(r.file||r.model)+"|"+r.model;
+    const g=(r.file||r.model)+"|"+r.model+"|"+r.date;
     const tr=document.createElement("tr");
     if(g!==prev&&prev!=="") tr.classList.add("gap");
     prev=g;
@@ -314,6 +319,8 @@ def render_html(rows):
     for r in rows:
         js_rows.append({
             "file":       r.get("file", ""),
+            "date":       r.get("date", ""),
+            "date_run":   r.get("_date_run", 0),
             "model":      r.get("model", ""),
             "size":       r.get("size", ""),
             "size_bytes": r.get("_size_bytes", 0),
@@ -360,11 +367,11 @@ def main():
 
     if args.model:
         model_id = resolve_model_id(conn, args.model)
-        db_rows = fetch_latest_run_ids(conn, model_id)
+        db_rows = fetch_runs(conn, model_id)
         rows = build_rows(conn, db_rows, include_file=False)
         columns = COLUMNS_SINGLE
     else:
-        db_rows = fetch_latest_run_ids(conn)
+        db_rows = fetch_runs(conn)
         rows = build_rows(conn, db_rows, include_file=True)
         columns = COLUMNS_MULTI
 
