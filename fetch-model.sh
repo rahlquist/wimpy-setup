@@ -396,47 +396,53 @@ github_token(){
   "$bws" secret get "$secret" | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"], end="")'
 }
 push_with_token(){
-  local token askpass rc
+  local ref="$1" token askpass rc
   token="$(github_token)" || return 1
   [[ -n "$token" ]] || return 1
   askpass="$(mktemp /tmp/fetch-model.git-askpass.XXXXXX)"
   printf '#!/bin/sh\nprintf %%s "${GIT_ASKPASS_TOKEN}"\n' > "$askpass"
   chmod 700 "$askpass"
   set +e
-  GIT_ASKPASS="$askpass" GIT_ASKPASS_TOKEN="$token" GIT_TERMINAL_PROMPT=0 git -C "$ROOT" push origin HEAD
+  GIT_ASKPASS="$askpass" GIT_ASKPASS_TOKEN="$token" GIT_TERMINAL_PROMPT=0 git -C "$ROOT" push origin "$ref:$ref"
   rc=$?
   set -e
   rm -f "$askpass"
   unset token
   return "$rc"
 }
+cleanup_commit_artifacts(){
+  rm -f -- "${COMMIT_INDEX:-}" "${CONFIG_SNAPSHOT:-}" "${INVENTORY_SNAPSHOT:-}" "${SIDECAR_SNAPSHOT:-}"
+}
 commit_model_update(){
-  local index config_blob inventory_blob sidecar_blob base ref tree commit
+  local config_blob inventory_blob sidecar_blob base ref tree commit current_ref
   config_blob="$(git -C "$ROOT" hash-object -w -- "$CONFIG_SNAPSHOT")"
   inventory_blob="$(git -C "$ROOT" hash-object -w -- "$INVENTORY_SNAPSHOT")"
   sidecar_blob="$(git -C "$ROOT" hash-object -w -- "$SIDECAR_SNAPSHOT")"
-  base="$(git -C "$ROOT" rev-parse HEAD)"
-  ref="$(git -C "$ROOT" symbolic-ref -q HEAD)" || die "automatic commit requires a checked-out branch"
-  index="$(mktemp "$ROOT/.git/fetch-model.index.XXXXXX")"
-  rm -f -- "$index"
-  trap 'rm -f -- "$index" "$CONFIG_SNAPSHOT" "$INVENTORY_SNAPSHOT" "$SIDECAR_SNAPSHOT"' RETURN
-  GIT_INDEX_FILE="$index" git -C "$ROOT" read-tree "$base"
-  GIT_INDEX_FILE="$index" git -C "$ROOT" update-index --add --cacheinfo "100644,$config_blob,$(basename "$CONFIG")"
-  GIT_INDEX_FILE="$index" git -C "$ROOT" update-index --add --cacheinfo "100644,$inventory_blob,$(basename "$INVENTORY_PATH")"
-  GIT_INDEX_FILE="$index" git -C "$ROOT" update-index --add --cacheinfo "100644,$sidecar_blob,model-metadata/$NAME.json"
-  tree="$(GIT_INDEX_FILE="$index" git -C "$ROOT" write-tree)"
+  ref="$(git -C "$ROOT" symbolic-ref -q HEAD)" || { cleanup_commit_artifacts; die "automatic commit requires a checked-out branch"; }
+  base="$(git -C "$ROOT" rev-parse "$ref")"
+  COMMIT_INDEX="$(mktemp "$ROOT/.git/fetch-model.index.XXXXXX")"
+  rm -f -- "$COMMIT_INDEX"
+  GIT_INDEX_FILE="$COMMIT_INDEX" git -C "$ROOT" read-tree "$base"
+  GIT_INDEX_FILE="$COMMIT_INDEX" git -C "$ROOT" update-index --add --cacheinfo "100644,$config_blob,$(basename "$CONFIG")"
+  GIT_INDEX_FILE="$COMMIT_INDEX" git -C "$ROOT" update-index --add --cacheinfo "100644,$inventory_blob,$(basename "$INVENTORY_PATH")"
+  GIT_INDEX_FILE="$COMMIT_INDEX" git -C "$ROOT" update-index --add --cacheinfo "100644,$sidecar_blob,model-metadata/$NAME.json"
+  tree="$(GIT_INDEX_FILE="$COMMIT_INDEX" git -C "$ROOT" write-tree)"
   commit="$(git -C "$ROOT" commit-tree "$tree" -p "$base" -m "feat(models): add $NAME")"
-  git -C "$ROOT" update-ref "$ref" "$commit" "$base" || die "HEAD changed concurrently; refusing automatic commit"
-  rm -f -- "$index" "$CONFIG_SNAPSHOT" "$INVENTORY_SNAPSHOT" "$SIDECAR_SNAPSHOT"
-  trap - RETURN
+  current_ref="$(git -C "$ROOT" symbolic-ref -q HEAD || true)"
+  if [[ "$current_ref" != "$ref" ]] || ! git -C "$ROOT" update-ref "$ref" "$commit" "$base"; then
+    cleanup_commit_artifacts
+    die "branch changed concurrently; refusing automatic commit"
+  fi
+  COMMIT_REF="$ref"
+  cleanup_commit_artifacts
 }
 if (( AUTO_PUSH )) && [[ -n "$ROOT" ]]; then
   git -C "$ROOT" diff --cached --quiet || die "the Git index has staged changes; refusing automatic commit"
   commit_model_update
-  push_with_token || die "commit succeeded locally but GitHub push failed; repair authentication/network and run: git -C \"$ROOT\" push origin HEAD"
+  push_with_token "$COMMIT_REF" || die "commit succeeded locally but GitHub push failed; repair authentication/network and run: git -C \"$ROOT\" push origin \"$COMMIT_REF:$COMMIT_REF\""
   ok "committed and pushed model configuration and inventory"
 else
-  rm -f -- "$CONFIG_SNAPSHOT" "$INVENTORY_SNAPSHOT" "$SIDECAR_SNAPSHOT"
+  cleanup_commit_artifacts
 fi
 
 exit 0
