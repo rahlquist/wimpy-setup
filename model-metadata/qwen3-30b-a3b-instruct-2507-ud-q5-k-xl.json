@@ -1,0 +1,20 @@
+{
+  "alias": "qwen3-30b-a3b-instruct-2507-ud-q5-k-xl",
+  "description": "Qwen3-30B-A3B-Instruct-2507",
+  "downloaded_at": "2026-07-12T23:30:15+00:00",
+  "filename": "Qwen3-30B-A3B-Instruct-2507-UD-Q5_K_XL.gguf",
+  "gguf": {
+    "architecture": "qwen3moe",
+    "block_count": 48,
+    "context_length": 262144,
+    "description": "",
+    "expert_count": 128,
+    "expert_used_count": 8,
+    "name": "Qwen3-30B-A3B-Instruct-2507"
+  },
+  "model_path": "/home/rahlquist/.cache/llama.cpp/Qwen3-30B-A3B-Instruct-2507-UD-Q5_K_XL.gguf",
+  "n_cpu_moe": null,
+  "native_context": 262144,
+  "repository": "unsloth/Qwen3-30B-A3B-Instruct-2507-GGUF",
+  "requested_context": 65536
+}
