@@ -89,10 +89,10 @@ def main() -> int:
                 sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
                 pass
-        added = sidecar.get("downloaded_at", today)
+        added = sidecar.get("downloaded_at") or today
         description = sidecar.get("description") or f"Locally configured GGUF model: {filename}."
-        native = sidecar.get("native_context", "unknown")
-        architecture = sidecar.get("gguf", {}).get("architecture", "unknown")
+        native = sidecar.get("native_context") or "unknown"
+        architecture = (sidecar.get("gguf") or {}).get("architecture") or "unknown"
         rows.append({
             "alias": entry["alias"], "filename": filename, "added": added,
             "description": description, "native": native, "architecture": architecture,

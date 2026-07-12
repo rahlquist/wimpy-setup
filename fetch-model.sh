@@ -27,6 +27,8 @@ die(){ err "$*"; exit 1; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GGUF_INSPECTOR="${GGUF_INSPECTOR:-$SCRIPT_DIR/tools/gguf_metadata.py}"
 INVENTORY_RENDERER="${INVENTORY_RENDERER:-$SCRIPT_DIR/tools/render_model_inventory.py}"
+INVENTORY_PATH="${INVENTORY_PATH:-$SCRIPT_DIR/model-inventory.html}"
+METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
 
 NAME=""; CTX="65536"; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1
 SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""; AUTO_PUSH=1
@@ -124,13 +126,12 @@ ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
 [[ -n "$LLAMA_SERVER" ]] || die "llama-server not found. Set LLAMA_SERVER=/path/to/llama-server."
 # Automatic commits must never absorb somebody else's uncommitted config or
 # inventory edits. The fetcher owns only the clean source-of-truth files.
-if (( AUTO_PUSH )) && [[ -n "$ROOT" && "$CONFIG" == "$ROOT/llama-swap-config.yaml" ]]; then
+if (( AUTO_PUSH )) && [[ -n "$ROOT" ]]; then
+  [[ "$CONFIG" == "$ROOT/llama-swap-config.yaml" && "$INVENTORY_PATH" == "$ROOT/model-inventory.html" && "$METADATA_DIR" == "$ROOT/model-metadata" ]] || die "automatic push requires this repository's config, inventory, and metadata paths"
+  git -C "$ROOT" diff --cached --quiet || die "the Git index already has staged changes; commit/stash them before automatic registration"
   git -C "$ROOT" diff --quiet -- llama-swap-config.yaml || die "llama-swap-config.yaml has uncommitted edits; commit/stash them before automatic registration"
-  if git -C "$ROOT" ls-files --error-unmatch model-inventory.html >/dev/null 2>&1; then
-    git -C "$ROOT" diff --quiet -- model-inventory.html || die "model-inventory.html has uncommitted edits; commit/stash them before automatic registration"
-  elif [[ -e "$ROOT/model-inventory.html" ]]; then
-    die "model-inventory.html exists but is untracked; add it or remove it before automatic registration"
-  fi
+  git -C "$ROOT" ls-files --error-unmatch model-inventory.html >/dev/null 2>&1 || die "model-inventory.html must be tracked before automatic registration"
+  git -C "$ROOT" diff --quiet -- model-inventory.html || die "model-inventory.html has uncommitted edits; commit/stash them before automatic registration"
 fi
 GPU_DEVICE="${DEVICE_OVERRIDE:-$(detect_gpu_device || true)}"
 case "$GPU_DEVICE" in
@@ -246,7 +247,23 @@ smoke_test(){
     err "smoke test indicates CPU-only fallback; refusing registration"
     return 1
   fi
-  ok "loaded and healthy at ctx=$CTX on $GPU_DEVICE"
+  local completion
+  completion="$(curl -sS --max-time 30 "http://127.0.0.1:$SMOKE_PORT/completion" \
+    -H 'Content-Type: application/json' \
+    -d '{"prompt":"Reply with OK.","n_predict":4,"temperature":0}' || true)"
+  if ! python3 - "$completion" <<'PY'
+import json, sys
+try:
+    response=json.loads(sys.argv[1])
+except (IndexError, json.JSONDecodeError):
+    raise SystemExit(1)
+raise SystemExit(0 if isinstance(response.get('content'), str) and response['content'].strip() else 1)
+PY
+  then
+    err "smoke test health endpoint passed but completion probe failed"
+    return 1
+  fi
+  ok "loaded, generated, and healthy at ctx=$CTX on $GPU_DEVICE"
   if [[ -n "$CPU_MOE" ]]; then info "intentional MoE expert CPU placement: first $CPU_MOE blocks"; fi
   cleanup; SERVER_PID=""; SMOKE_LOG=""
 }
@@ -259,6 +276,19 @@ fi
 (( DO_REGISTER )) || { info "registration skipped. id would be: $NAME"; exit 0; }
 [[ -n "$CONFIG" ]] || die "llama-swap config not found. Set LLAMA_SWAP_CONFIG."
 [[ -w "$CONFIG" ]] || die "config is not writable: $CONFIG"
+SIDECAR="$METADATA_DIR/$NAME.json"
+[[ ! -e "$SIDECAR" ]] || die "metadata sidecar already exists: $SIDECAR"
+mkdir -p "$METADATA_DIR" || die "cannot create metadata directory: $METADATA_DIR"
+mkdir -p "$(dirname "$INVENTORY_PATH")" || die "cannot create inventory directory: $(dirname "$INVENTORY_PATH")"
+SIDECAR_TMP="$(mktemp "$METADATA_DIR/.${NAME}.XXXXXX")" || die "cannot create metadata temporary file"
+INVENTORY_TMP="$(mktemp "${INVENTORY_PATH}.XXXXXX")" || { rm -f -- "$SIDECAR_TMP"; die "cannot create inventory temporary file"; }
+CONFIG_BACKUP="$(mktemp "${CONFIG}.fetch-model.XXXXXX")" || { rm -f -- "$SIDECAR_TMP" "$INVENTORY_TMP"; die "cannot create config backup"; }
+CONFIG_SNAPSHOT="$(mktemp "${CONFIG}.fetch-model.snapshot.XXXXXX")" || { rm -f -- "$SIDECAR_TMP" "$INVENTORY_TMP" "$CONFIG_BACKUP"; die "cannot create config snapshot"; }
+cp -- "$CONFIG" "$CONFIG_BACKUP" || { rm -f -- "$SIDECAR_TMP" "$INVENTORY_TMP" "$CONFIG_BACKUP" "$CONFIG_SNAPSHOT"; die "cannot back up config"; }
+rollback_registration(){
+  cp -- "$CONFIG_BACKUP" "$CONFIG"
+  rm -f -- "$SIDECAR" "$SIDECAR_TMP" "$INVENTORY_TMP"
+}
 
 # Insert using a constrained textual transformation. It preserves comments and
 # formatting, validates before replacement, and never uses yq or git checkout.
@@ -300,17 +330,15 @@ set -e
 rm -f "$CMDFILE"
 case "$rc" in
   0) ok "registered '$NAME' in $CONFIG.";;
-  3) warn "model id '$NAME' already exists; config untouched."; exit 0;;
-  *) die "config insertion failed; config untouched.";;
+  3) rm -f -- "$CONFIG_BACKUP" "$SIDECAR_TMP" "$INVENTORY_TMP"; warn "model id '$NAME' already exists; config untouched."; exit 0;;
+  *) rm -f -- "$CONFIG_BACKUP" "$SIDECAR_TMP" "$INVENTORY_TMP"; die "config insertion failed; config untouched.";;
 esac
 
 # Store metadata in the repository. It makes inventory generation reproducible,
 # avoids putting untracked sidecars in a model cache, and retains inspection
 # evidence even when a model is moved or re-downloaded.
-METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
-mkdir -p "$METADATA_DIR"
-SIDECAR="$METADATA_DIR/$NAME.json"
-python3 - "$SIDECAR" "$NAME" "$REPO_ID" "$FILE" "$MODEL_PATH" "$CTX" "$NATIVE_CTX" "$CPU_MOE" "$METADATA_JSON" "$DESCRIPTION" <<'PY'
+set +e
+python3 - "$SIDECAR_TMP" "$NAME" "$REPO_ID" "$FILE" "$MODEL_PATH" "$CTX" "$NATIVE_CTX" "$CPU_MOE" "$METADATA_JSON" "$DESCRIPTION" <<'PY'
 import json,sys,datetime
 out,alias,repo,file,path,ctx,native,cpu,metadata,description=sys.argv[1:]
 m=json.loads(metadata)
@@ -323,14 +351,29 @@ data={
 }
 with open(out,'w',encoding='utf-8') as f: json.dump(data,f,indent=2,sort_keys=True); f.write('\n')
 PY
-ok "wrote metadata sidecar: $SIDECAR"
-
-if [[ -x "$INVENTORY_RENDERER" || -f "$INVENTORY_RENDERER" ]]; then
-  python3 "$INVENTORY_RENDERER" "$CONFIG" "$SCRIPT_DIR/model-inventory.html" "$METADATA_DIR"
-  ok "updated model inventory: $SCRIPT_DIR/model-inventory.html"
+rc=$?
+if (( rc == 0 )); then mv -- "$SIDECAR_TMP" "$SIDECAR"; fi
+if (( rc == 0 )) && [[ -f "$INVENTORY_RENDERER" ]]; then
+  python3 "$INVENTORY_RENDERER" "$CONFIG" "$INVENTORY_TMP" "$METADATA_DIR"
+  rc=$?
 else
-  warn "inventory renderer missing: $INVENTORY_RENDERER"
+  rc=1
 fi
+set -e
+if (( rc != 0 )); then
+  rm -f -- "$SIDECAR_TMP" "$INVENTORY_TMP"
+  rollback_registration
+  rm -f -- "$CONFIG_BACKUP"
+  die "metadata or inventory generation failed; registration rolled back"
+fi
+mv -- "$INVENTORY_TMP" "$INVENTORY_PATH"
+cp -- "$CONFIG" "$CONFIG_SNAPSHOT" || { rollback_registration; rm -f -- "$CONFIG_BACKUP" "$CONFIG_SNAPSHOT"; die "cannot capture config snapshot"; }
+INVENTORY_SNAPSHOT="$(mktemp "${INVENTORY_PATH}.fetch-model.snapshot.XXXXXX")" || { rollback_registration; rm -f -- "$CONFIG_BACKUP" "$CONFIG_SNAPSHOT"; die "cannot create inventory snapshot"; }
+SIDECAR_SNAPSHOT="$(mktemp "${SIDECAR}.fetch-model.snapshot.XXXXXX")" || { rollback_registration; rm -f -- "$CONFIG_BACKUP" "$CONFIG_SNAPSHOT" "$INVENTORY_SNAPSHOT"; die "cannot create metadata snapshot"; }
+cp -- "$INVENTORY_PATH" "$INVENTORY_SNAPSHOT" && cp -- "$SIDECAR" "$SIDECAR_SNAPSHOT" || { rollback_registration; rm -f -- "$CONFIG_BACKUP" "$CONFIG_SNAPSHOT" "$INVENTORY_SNAPSHOT" "$SIDECAR_SNAPSHOT"; die "cannot capture model update snapshots"; }
+rm -f -- "$CONFIG_BACKUP"
+ok "wrote metadata sidecar: $SIDECAR"
+ok "updated model inventory: $INVENTORY_PATH"
 
 if [[ "$CONFIG" != /etc/llama-swap/config.yaml ]]; then
   info 'To deploy: first back up /etc/llama-swap/config.yaml, then copy this repository config there. llama-swap watches config changes; no restart is needed.'
@@ -367,15 +410,29 @@ push_with_token(){
   unset token
   return "$rc"
 }
+commit_model_update(){
+  local index config_blob inventory_blob sidecar_blob
+  config_blob="$(git -C "$ROOT" hash-object -w -- "$CONFIG_SNAPSHOT")"
+  inventory_blob="$(git -C "$ROOT" hash-object -w -- "$INVENTORY_SNAPSHOT")"
+  sidecar_blob="$(git -C "$ROOT" hash-object -w -- "$SIDECAR_SNAPSHOT")"
+  index="$(mktemp "$ROOT/.git/fetch-model.index.XXXXXX")"
+  rm -f -- "$index"
+  trap 'rm -f -- "$index" "$CONFIG_SNAPSHOT" "$INVENTORY_SNAPSHOT" "$SIDECAR_SNAPSHOT"' RETURN
+  GIT_INDEX_FILE="$index" git -C "$ROOT" read-tree HEAD
+  GIT_INDEX_FILE="$index" git -C "$ROOT" update-index --add --cacheinfo "100644,$config_blob,$(basename "$CONFIG")"
+  GIT_INDEX_FILE="$index" git -C "$ROOT" update-index --add --cacheinfo "100644,$inventory_blob,$(basename "$INVENTORY_PATH")"
+  GIT_INDEX_FILE="$index" git -C "$ROOT" update-index --add --cacheinfo "100644,$sidecar_blob,model-metadata/$NAME.json"
+  GIT_INDEX_FILE="$index" git -C "$ROOT" commit -m "feat(models): add $NAME"
+  rm -f -- "$index" "$CONFIG_SNAPSHOT" "$INVENTORY_SNAPSHOT" "$SIDECAR_SNAPSHOT"
+  trap - RETURN
+}
 if (( AUTO_PUSH )) && [[ -n "$ROOT" ]]; then
-  git -C "$ROOT" add llama-swap-config.yaml model-inventory.html model-metadata/
-  if ! git -C "$ROOT" diff --cached --quiet; then
-    git -C "$ROOT" commit -m "feat(models): add $NAME"
-    push_with_token || die "commit succeeded locally but GitHub push failed; repair authentication/network and run: git -C \"$ROOT\" push origin HEAD"
-    ok "committed and pushed model configuration and inventory"
-  else
-    info 'no tracked config/inventory changes to commit'
-  fi
+  git -C "$ROOT" diff --cached --quiet || die "the Git index has staged changes; refusing automatic commit"
+  commit_model_update
+  push_with_token || die "commit succeeded locally but GitHub push failed; repair authentication/network and run: git -C \"$ROOT\" push origin HEAD"
+  ok "committed and pushed model configuration and inventory"
+else
+  rm -f -- "$CONFIG_SNAPSHOT" "$INVENTORY_SNAPSHOT" "$SIDECAR_SNAPSHOT"
 fi
 
 exit 0

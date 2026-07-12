@@ -69,7 +69,7 @@ YAML
 cp "$TMP/config.yaml" "$TMP/config-base.yaml"
 
 FAKE_GGUF="$TMP/model-Q5_K_M.gguf" HF_CALLS="$TMP/hf.calls" \
-PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config.yaml" MODELS_DIR="$TMP/models" MODEL_METADATA_DIR="$TMP/metadata" \
+PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config.yaml" MODELS_DIR="$TMP/models" MODEL_METADATA_DIR="$TMP/metadata" INVENTORY_PATH="$TMP/generated-inventory.html" \
   "$SCRIPT" -y --no-push --no-smoke 'hf download hf://owner/repo-GGUF/model-Q5_K_M.gguf 21' > "$TMP/run.out" 2> "$TMP/run.err" || {
   cat "$TMP/run.out" >&2; cat "$TMP/run.err" >&2; fail 'fetch-model invocation failed'; }
 assert_contains "$TMP/config.yaml" '"model-q5-k-m":'
@@ -86,14 +86,50 @@ assert_contains "$TMP/inventory.html" '--n-cpu-moe 21'
 # The ordinary, unquoted copy/paste form must mean the same thing.
 cp "$TMP/config-base.yaml" "$TMP/config-unquoted.yaml"
 FAKE_GGUF="$TMP/model-Q5_K_M.gguf" HF_CALLS="$TMP/hf-unquoted.calls" \
-PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config-unquoted.yaml" MODELS_DIR="$TMP/models-unquoted" MODEL_METADATA_DIR="$TMP/metadata-unquoted" \
+PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config-unquoted.yaml" MODELS_DIR="$TMP/models-unquoted" MODEL_METADATA_DIR="$TMP/metadata-unquoted" INVENTORY_PATH="$TMP/generated-unquoted-inventory.html" \
   "$SCRIPT" -y --no-push --no-smoke hf download hf://owner/repo-GGUF/model-Q5_K_M.gguf 21 > "$TMP/unquoted.out" 2>&1 || {
   cat "$TMP/unquoted.out" >&2; fail 'unquoted fetch-model invocation failed'; }
 assert_contains "$TMP/config-unquoted.yaml" '--n-cpu-moe 21'
 
+# If inventory rendering fails, the earlier config registration must be rolled back.
+cp "$TMP/config-base.yaml" "$TMP/config-rollback.yaml"
+if FAKE_GGUF="$TMP/model-Q5_K_M.gguf" HF_CALLS="$TMP/hf-rollback.calls" \
+  PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config-rollback.yaml" MODELS_DIR="$TMP/models-rollback" MODEL_METADATA_DIR="$TMP/metadata-rollback" INVENTORY_PATH="$TMP/generated-rollback-inventory.html" INVENTORY_RENDERER=/dev/null \
+  "$SCRIPT" -y --no-push --no-smoke 'hf download hf://owner/repo-GGUF/model-Q5_K_M.gguf 21' > "$TMP/rollback.out" 2>&1; then
+  fail 'registration succeeded despite inventory-render failure'
+fi
+cmp -s "$TMP/config-base.yaml" "$TMP/config-rollback.yaml" || fail 'config changed after inventory-render failure'
+[[ ! -e "$TMP/metadata-rollback/model-q5-k-m.json" ]] || fail 'metadata sidecar survived inventory-render failure'
+
+# An unusable inventory output path must fail before config registration starts.
+cp "$TMP/config-base.yaml" "$TMP/config-output-path.yaml"
+touch "$TMP/not-a-directory"
+if FAKE_GGUF="$TMP/model-Q5_K_M.gguf" HF_CALLS="$TMP/hf-output-path.calls" \
+  PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config-output-path.yaml" MODELS_DIR="$TMP/models-output-path" MODEL_METADATA_DIR="$TMP/metadata-output-path" INVENTORY_PATH="$TMP/not-a-directory/inventory.html" \
+  "$SCRIPT" -y --no-push --no-smoke 'hf download hf://owner/repo-GGUF/model-Q5_K_M.gguf 21' > "$TMP/output-path.out" 2>&1; then
+  fail 'registration succeeded with an unusable inventory output path'
+fi
+cmp -s "$TMP/config-base.yaml" "$TMP/config-output-path.yaml" || fail 'config changed after inventory output-path preflight failure'
+
+# Auto-push must refuse metadata outside the repository before touching the config.
+cp "$TMP/config-base.yaml" "$TMP/config-auto-push.yaml"
+if FAKE_GGUF="$TMP/model-Q5_K_M.gguf" HF_CALLS="$TMP/hf-auto-push.calls" \
+  PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config-auto-push.yaml" MODELS_DIR="$TMP/models-auto-push" MODEL_METADATA_DIR="$TMP/metadata-auto-push" INVENTORY_PATH="$TMP/generated-auto-push-inventory.html" \
+  "$SCRIPT" -y --no-smoke 'hf download hf://owner/repo-GGUF/model-Q5_K_M.gguf 21' > "$TMP/auto-push.out" 2>&1; then
+  fail 'automatic push accepted metadata outside the repository'
+fi
+cmp -s "$TMP/config-base.yaml" "$TMP/config-auto-push.yaml" || fail 'config changed after auto-push metadata-path rejection'
+assert_contains "$TMP/auto-push.out" 'automatic push requires this repository'
+
+# A malformed historical sidecar with gguf:null must still render as unknown.
+mkdir -p "$TMP/metadata-null"
+printf '{"alias":"existing","gguf":null}\n' > "$TMP/metadata-null/existing.json"
+python3 "$ROOT/tools/render_model_inventory.py" "$TMP/config-base.yaml" "$TMP/inventory-null.html" "$TMP/metadata-null"
+assert_contains "$TMP/inventory-null.html" '>unknown<'
+
 FAKE_GGUF="$TMP/model-Q5_K_M.gguf" HF_CALLS="$TMP/hf.calls" \
-PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config.yaml" MODELS_DIR="$TMP/models" \
-  "$SCRIPT" -y --no-smoke --no-register 'hf download hf://owner/repo-GGUF/model-Q5_K_M.gguf 49' > "$TMP/bounds.out" 2>&1 \
+PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config.yaml" MODELS_DIR="$TMP/models" INVENTORY_PATH="$TMP/generated-bounds-inventory.html" \
+  "$SCRIPT" -y --no-push --no-smoke --no-register 'hf download hf://owner/repo-GGUF/model-Q5_K_M.gguf 49' > "$TMP/bounds.out" 2>&1 \
   && fail 'out-of-range --n-cpu-moe was accepted'
 assert_contains "$TMP/bounds.out" 'must be between 0 and 48'
 printf 'PASS: fetch-model parses pasted HF command, derives native context, validates MoE bounds, and registers safely\n'
