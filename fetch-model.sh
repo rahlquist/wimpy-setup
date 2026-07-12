@@ -221,6 +221,7 @@ cleanup(){
     wait "$SERVER_PID" 2>/dev/null || true
   fi
   [[ -n "$SMOKE_LOG" ]] && rm -f "$SMOKE_LOG"
+  rm -f -- "${COMMIT_INDEX:-}" "${CONFIG_SNAPSHOT:-}" "${INVENTORY_SNAPSHOT:-}" "${SIDECAR_SNAPSHOT:-}"
   return 0
 }
 trap cleanup EXIT INT TERM
@@ -414,7 +415,7 @@ cleanup_commit_artifacts(){
   rm -f -- "${COMMIT_INDEX:-}" "${CONFIG_SNAPSHOT:-}" "${INVENTORY_SNAPSHOT:-}" "${SIDECAR_SNAPSHOT:-}"
 }
 commit_model_update(){
-  local config_blob inventory_blob sidecar_blob base ref tree commit current_ref
+  local config_blob inventory_blob sidecar_blob base ref tree commit
   config_blob="$(git -C "$ROOT" hash-object -w -- "$CONFIG_SNAPSHOT")"
   inventory_blob="$(git -C "$ROOT" hash-object -w -- "$INVENTORY_SNAPSHOT")"
   sidecar_blob="$(git -C "$ROOT" hash-object -w -- "$SIDECAR_SNAPSHOT")"
@@ -428,8 +429,10 @@ commit_model_update(){
   GIT_INDEX_FILE="$COMMIT_INDEX" git -C "$ROOT" update-index --add --cacheinfo "100644,$sidecar_blob,model-metadata/$NAME.json"
   tree="$(GIT_INDEX_FILE="$COMMIT_INDEX" git -C "$ROOT" write-tree)"
   commit="$(git -C "$ROOT" commit-tree "$tree" -p "$base" -m "feat(models): add $NAME")"
-  current_ref="$(git -C "$ROOT" symbolic-ref -q HEAD || true)"
-  if [[ "$current_ref" != "$ref" ]] || ! git -C "$ROOT" update-ref "$ref" "$commit" "$base"; then
+  # The ref update is compare-and-swap protected. A checkout in another process
+  # cannot be made atomic with this branch update using porcelain Git commands;
+  # commit/push the captured branch explicitly rather than whatever HEAD becomes.
+  if ! git -C "$ROOT" update-ref "$ref" "$commit" "$base"; then
     cleanup_commit_artifacts
     die "branch changed concurrently; refusing automatic commit"
   fi
