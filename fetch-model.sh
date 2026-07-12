@@ -411,18 +411,22 @@ push_with_token(){
   return "$rc"
 }
 commit_model_update(){
-  local index config_blob inventory_blob sidecar_blob
+  local index config_blob inventory_blob sidecar_blob base ref tree commit
   config_blob="$(git -C "$ROOT" hash-object -w -- "$CONFIG_SNAPSHOT")"
   inventory_blob="$(git -C "$ROOT" hash-object -w -- "$INVENTORY_SNAPSHOT")"
   sidecar_blob="$(git -C "$ROOT" hash-object -w -- "$SIDECAR_SNAPSHOT")"
+  base="$(git -C "$ROOT" rev-parse HEAD)"
+  ref="$(git -C "$ROOT" symbolic-ref -q HEAD)" || die "automatic commit requires a checked-out branch"
   index="$(mktemp "$ROOT/.git/fetch-model.index.XXXXXX")"
   rm -f -- "$index"
   trap 'rm -f -- "$index" "$CONFIG_SNAPSHOT" "$INVENTORY_SNAPSHOT" "$SIDECAR_SNAPSHOT"' RETURN
-  GIT_INDEX_FILE="$index" git -C "$ROOT" read-tree HEAD
+  GIT_INDEX_FILE="$index" git -C "$ROOT" read-tree "$base"
   GIT_INDEX_FILE="$index" git -C "$ROOT" update-index --add --cacheinfo "100644,$config_blob,$(basename "$CONFIG")"
   GIT_INDEX_FILE="$index" git -C "$ROOT" update-index --add --cacheinfo "100644,$inventory_blob,$(basename "$INVENTORY_PATH")"
   GIT_INDEX_FILE="$index" git -C "$ROOT" update-index --add --cacheinfo "100644,$sidecar_blob,model-metadata/$NAME.json"
-  GIT_INDEX_FILE="$index" git -C "$ROOT" commit -m "feat(models): add $NAME"
+  tree="$(GIT_INDEX_FILE="$index" git -C "$ROOT" write-tree)"
+  commit="$(git -C "$ROOT" commit-tree "$tree" -p "$base" -m "feat(models): add $NAME")"
+  git -C "$ROOT" update-ref "$ref" "$commit" "$base" || die "HEAD changed concurrently; refusing automatic commit"
   rm -f -- "$index" "$CONFIG_SNAPSHOT" "$INVENTORY_SNAPSHOT" "$SIDECAR_SNAPSHOT"
   trap - RETURN
 }
