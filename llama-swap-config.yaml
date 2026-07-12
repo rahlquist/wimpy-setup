@@ -46,6 +46,13 @@
 healthCheckTimeout: 180
 
 models:
+  "qwen-qwen3-30b-a3b-instruct-2507-q5-k-m":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen_Qwen3-30B-A3B-Instruct-2507-Q5_K_M.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
   "qwen3-coder-30b-a3b-instruct-q5-k-m":
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=0"]
