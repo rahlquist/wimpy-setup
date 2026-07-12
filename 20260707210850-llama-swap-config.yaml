@@ -1,0 +1,273 @@
+# llama-swap-config.yaml — wimpy
+# Copy to /etc/llama-swap/config.yaml, then restart the service:
+#   [ -f /etc/llama-swap/config.yaml ] && sudo cp /etc/llama-swap/config.yaml /etc/llama-swap/$(date +%Y%m%d%H%M%S)-config.yaml.bak
+#   sudo cp llama-swap-config.yaml /etc/llama-swap/config.yaml
+#   sudo systemctl restart llama-swap
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# HARDWARE: AMD Radeon AI PRO R9700 32GB (ROCm/HIP) + GT 710 (display only,
+#           excluded — driven by nouveau, no ROCm/CUDA device at all so no
+#           pinning is even possible for it).
+#           RTX 5060 Ti is temporarily removed pending re-install; this config
+#           targets the R9700 only until that happens.
+# BINARY  : /usr/bin/llama-server (llama-cpp-rocm pacman package). Do NOT use
+#           a bare `llama-server` here — PATH resolution to a stale
+#           /usr/local/bin build is exactly what caused silent CPU fallback
+#           during the CUDA->ROCm migration. Always use the explicit path.
+# GPU PIN : HIP_VISIBLE_DEVICES=0 selects the one ROCm-visible device (the
+#           R9700). Kept explicit even with a single GPU so the pinning
+#           pattern is future-proofed against ever adding a second AMD GPU.
+# CONTEXT : 65536 everywhere — Hermes Agent requires a 64K minimum.
+# KV CACHE: flash attention + Q4 quantized KV (-fa on, ctk/ctv q4_0) keeps the
+#           64K KV cache small enough to fit alongside weights.
+# BINDING : --host 0.0.0.0 so hermesvm01 can reach models over the br0 bridge.
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# ONE consistent method: every model uses --model with an explicit path to the
+# file that download-models.sh saved into $MODELS. This matches the slug setup
+# and avoids any double-download. If your cache dir differs, edit MODELS-equiv
+# paths below (they assume the default ~/.cache/llama.cpp for user rahlquist).
+#
+# MoE entries add: -ngl 99 --n-cpu-moe N  (offload N layers' experts to 64GB RAM).
+# Start N conservative; lower it to push experts onto the GPU for speed while
+# watching `rocm-smi`. --n-cpu-moe counts from the highest-numbered layers down.
+
+healthCheckTimeout: 180
+
+models:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  #  LEGACY — predate the standardized entry format below. Ported back into
+  #  this file during the CUDA->ROCm migration (they existed in production's
+  #  /etc/llama-swap/config.yaml but had drifted out of this repo file).
+  # ══════════════════════════════════════════════════════════════════════════
+
+  "deepseek-coder-v2-lite-instruct-q4-k-m":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: |
+      /usr/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf
+      -ngl 99 -dev ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja
+      --host 127.0.0.1 --port ${PORT}
+
+  "ornith-1-0-9b-q8-0":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: |
+      /usr/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/ornith-1.0-9b-Q8_0.gguf
+      -ngl 99 -dev ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja
+      --chat-template-file /etc/llama-swap/templates/ornith.jinja
+      --host 127.0.0.1 --port ${PORT}
+
+  "gemma4-coding-q6-k":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: |
+      /usr/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/gemma4-coding-Q6_K.gguf
+      -ngl 99 -dev ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja
+      --host 127.0.0.1 --port ${PORT}
+
+  # ══════════════════════════════════════════════════════════════════════════
+  #  TIER 1 — fits comfortably at 64K on 16GB
+  # ══════════════════════════════════════════════════════════════════════════
+
+  qwen2.5-coder-14b:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  mistral-7b:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  llama3.2-3b:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/Llama-3.2-3B-Instruct-Q4_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  granite-4.1-8b:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/ibm-granite_granite-4.1-8b-Q4_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  granite-4.1-3b:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/ibm-granite_granite-4.1-3b-Q4_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  phi-4:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    # Switched from Q8_0 (~15GB) to Q4_K_M (~8GB) — Q8_0 OOMed at 64K on 16GB.
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/phi-4-Q4_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  deepseek-r1-14b:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  gemma-3-12b:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    # Q8_0 (~13GB). Tight at 64K on 16GB; if it OOMs, use a Q4_K_M instead.
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/google_gemma-3-12b-it-Q8_0.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  gemma-4-12b:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/gemma-4-12B-it-Q4_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  llama-2-7b:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    # Legacy (2023). Native context is short; 64K is extrapolated and may degrade.
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/llama-2-7b-chat.Q4_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  # ── Qwen3.5-9B Claude-Opus reasoning distill — 3 quants for A/B testing ──────
+  qwen3.5-9b-q4:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  qwen3.5-9b-q6:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q6_K.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  qwen3.5-9b-q8:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  # ══════════════════════════════════════════════════════════════════════════
+  #  TIER 2 — MoE (expert offload to system RAM, 64GB)
+  # ══════════════════════════════════════════════════════════════════════════
+
+  ling-mini-2-q4:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q4_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 8 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  ling-mini-2-q5:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q5_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 8 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  ling-mini-2-q6:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q6_K.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 8 --device ROCm0
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  qwen3-30b-a3b:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    # 30B MoE, 3B active. Start with high --n-cpu-moe; lower toward ~20 as VRAM
+    # allows. Raised batch sizes help CPU+GPU MoE throughput.
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/Qwen3-30B-A3B-Q4_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 36 --device ROCm0
+        --batch-size 2048 --ubatch-size 512
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+  gemma-4-26b-moe:
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    # 26B-A4B MoE (the one from the video). Tune --n-cpu-moe down for speed.
+    cmd: >
+      /usr/bin/llama-server
+        --model /home/rahlquist/.cache/llama.cpp/google_gemma-4-26B-A4B-it-Q4_K_M.gguf
+        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 30 --device ROCm0
+        --batch-size 2048 --ubatch-size 512
+        --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
+        --host 0.0.0.0 --port ${PORT} --jinja --metrics
+
+# ─────────────────────────────────────────────────────────────────────────────
+# After editing:
+#   curl http://localhost:8080/v1/models           # list configured models
+#   journalctl -u llama-swap -f                     # watch load / errors
+# From hermesvm01:
+#   curl http://wimpy.home.lan:8080/v1/models
+# ─────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,6 @@
+# Override /usr/lib/modprobe.d/nvidia-utils.conf (package-shipped by
+# nvidia-utils): allow nouveau to bind to the GT 710 (display-only, Kepler,
+# incompatible with nvidia-open's GSP requirement). nova_core/nova_drm stay
+# blacklisted — experimental Rust driver, unrelated to this fix.
+blacklist nova_core
+blacklist nova_drm

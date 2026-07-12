@@ -1,0 +1,70 @@
+-rwxr-xr-x 1 root root    40928 Jun 30 21:35 /usr/local/bin/llama-batched
+-rwxr-xr-x 1 root root    15976 Jun 30 21:35 /usr/local/bin/llama-batched-bench
+-rwxr-xr-x 1 root root    15968 Jun 30 21:35 /usr/local/bin/llama-bench
+-rwxr-xr-x 1 root root    15968 Jun 30 21:36 /usr/local/bin/llama-cli
+-rwxr-xr-x 1 root root    15976 Jun 30 21:35 /usr/local/bin/llama-completion
+-rwxr-xr-x 1 root root    65024 Jun 30 21:35 /usr/local/bin/llama-convert-llama2c-to-ggml
+-rwxr-xr-x 1 root root    84832 Jun 30 21:35 /usr/local/bin/llama-cvector-generator
+-rwxr-xr-x 1 root root   244016 Jun 30 21:35 /usr/local/bin/llama-debug
+-rwxr-xr-x 1 root root   213552 Jun 30 21:35 /usr/local/bin/llama-debug-template-parser
+-rwxr-xr-x 1 root root    80128 Jun 30 21:35 /usr/local/bin/llama-diffusion-cli
+-rwxr-xr-x 1 root root    58800 Jun 30 21:35 /usr/local/bin/llama-embedding
+-rwxr-xr-x 1 root root    35472 Jun 30 21:35 /usr/local/bin/llama-eval-callback
+-rwxr-xr-x 1 root root    81328 Jun 30 21:35 /usr/local/bin/llama-export-lora
+-rwxr-xr-x 1 root root    35768 Jun 30 21:35 /usr/local/bin/llama-finetune
+-rwxr-xr-x 1 root root    15976 Jun 30 21:35 /usr/local/bin/llama-fit-params
+-rwxr-xr-x 1 root root    59216 Jun 30 21:35 /usr/local/bin/llama-gen-docs
+-rwxr-xr-x 1 root root    28536 Jun 30 21:35 /usr/local/bin/llama-gguf
+-rwxr-xr-x 1 root root   119632 Jun 30 21:35 /usr/local/bin/llama-gguf-hash
+-rwxr-xr-x 1 root root    51904 Jun 30 21:35 /usr/local/bin/llama-gguf-split
+-rwxr-xr-x 1 root root    35744 Jun 30 21:35 /usr/local/bin/llama-idle
+-rwxr-xr-x 1 root root   335224 Jun 30 21:35 /usr/local/bin/llama-imatrix
+-rwxr-xr-x 1 root root    49384 Jun 30 21:35 /usr/local/bin/llama-lookahead
+-rwxr-xr-x 1 root root    46744 Jun 30 21:35 /usr/local/bin/llama-lookup
+-rwxr-xr-x 1 root root    35216 Jun 30 21:35 /usr/local/bin/llama-lookup-create
+-rwxr-xr-x 1 root root    22248 Jun 30 21:35 /usr/local/bin/llama-lookup-merge
+-rwxr-xr-x 1 root root    41136 Jun 30 21:35 /usr/local/bin/llama-lookup-stats
+-rwxr-xr-x 1 root root    83176 Jun 30 21:35 /usr/local/bin/llama-mtmd-cli
+-rwxr-xr-x 1 root root    68768 Jun 30 21:35 /usr/local/bin/llama-parallel
+-rwxr-xr-x 1 root root    49344 Jun 30 21:35 /usr/local/bin/llama-passkey
+-rwxr-xr-x 1 root root    15976 Jun 30 21:35 /usr/local/bin/llama-perplexity
+-rwxr-xr-x 1 root root    15976 Jun 30 21:35 /usr/local/bin/llama-quantize
+-rwxr-xr-x 1 root root    42336 Jun 30 21:35 /usr/local/bin/llama-results
+-rwxr-xr-x 1 root root    68584 Jun 30 21:35 /usr/local/bin/llama-retrieval
+-rwxr-xr-x 1 root root    15976 Jun 30 21:36 /usr/local/bin/llama-server
+-rwxr-xr-x 1 root root    27480 Jun 30 21:35 /usr/local/bin/llama-simple
+-rwxr-xr-x 1 root root    28344 Jun 30 21:35 /usr/local/bin/llama-simple-chat
+-rwxr-xr-x 1 root root    76816 Jun 30 21:35 /usr/local/bin/llama-speculative
+-rwxr-xr-x 1 root root    73072 Jun 30 21:35 /usr/local/bin/llama-speculative-simple
+-rwxr-xr-x 1 root root 18871443 Jun 30 21:36 /usr/local/bin/llama-swap
+-rwxr-xr-x 1 root root   202208 Jun 30 21:35 /usr/local/bin/llama-template-analysis
+-rwxr-xr-x 1 root root    37152 Jun 30 21:35 /usr/local/bin/llama-tokenize
+-rwxr-xr-x 1 root root   418184 Jun 30 21:35 /usr/local/bin/llama-tts
+lrwxrwxrwx 1 root root       17 Jun 27 23:08 /usr/local/lib/libggml-base.so -> libggml-base.so.0
+lrwxrwxrwx 1 root root       22 Jun 27 23:08 /usr/local/lib/libggml-base.so.0 -> libggml-base.so.0.15.3
+-rwxr-xr-x 1 root root   943736 Jun 30 21:33 /usr/local/lib/libggml-base.so.0.15.3
+lrwxrwxrwx 1 root root       16 Jun 27 23:08 /usr/local/lib/libggml-cpu.so -> libggml-cpu.so.0
+lrwxrwxrwx 1 root root       21 Jun 27 23:08 /usr/local/lib/libggml-cpu.so.0 -> libggml-cpu.so.0.15.3
+-rwxr-xr-x 1 root root  1143336 Jun 30 21:33 /usr/local/lib/libggml-cpu.so.0.15.3
+lrwxrwxrwx 1 root root       17 Jun 27 23:08 /usr/local/lib/libggml-cuda.so -> libggml-cuda.so.0
+lrwxrwxrwx 1 root root       22 Jun 27 23:08 /usr/local/lib/libggml-cuda.so.0 -> libggml-cuda.so.0.15.3
+-rwxr-xr-x 1 root root 69504224 Jun 30 21:35 /usr/local/lib/libggml-cuda.so.0.15.3
+lrwxrwxrwx 1 root root       12 Jun 27 23:08 /usr/local/lib/libggml.so -> libggml.so.0
+lrwxrwxrwx 1 root root       17 Jun 27 23:08 /usr/local/lib/libggml.so.0 -> libggml.so.0.15.3
+-rwxr-xr-x 1 root root    55208 Jun 30 21:35 /usr/local/lib/libggml.so.0.15.3
+-rwxr-xr-x 1 root root    39608 Jun 30 21:35 /usr/local/lib/libllama-batched-bench-impl.so
+-rwxr-xr-x 1 root root   471368 Jun 30 21:35 /usr/local/lib/libllama-bench-impl.so
+-rwxr-xr-x 1 root root  2111432 Jun 30 21:36 /usr/local/lib/libllama-cli-impl.so
+lrwxrwxrwx 1 root root       20 Jun 27 23:08 /usr/local/lib/libllama-common.so -> libllama-common.so.0
+lrwxrwxrwx 1 root root       27 Jun 30 21:36 /usr/local/lib/libllama-common.so.0 -> libllama-common.so.0.0.9851
+-rwxr-xr-x 1 root root  6196864 Jun 27 23:07 /usr/local/lib/libllama-common.so.0.0.9828
+-rwxr-xr-x 1 root root  6249504 Jun 30 21:35 /usr/local/lib/libllama-common.so.0.0.9851
+-rwxr-xr-x 1 root root   110808 Jun 30 21:35 /usr/local/lib/libllama-completion-impl.so
+-rwxr-xr-x 1 root root    34616 Jun 30 21:35 /usr/local/lib/libllama-fit-params-impl.so
+-rwxr-xr-x 1 root root   163344 Jun 30 21:35 /usr/local/lib/libllama-perplexity-impl.so
+-rwxr-xr-x 1 root root    86704 Jun 30 21:35 /usr/local/lib/libllama-quantize-impl.so
+-rwxr-xr-x 1 root root  7073024 Jun 30 21:36 /usr/local/lib/libllama-server-impl.so
+lrwxrwxrwx 1 root root       13 Jun 27 23:08 /usr/local/lib/libllama.so -> libllama.so.0
+lrwxrwxrwx 1 root root       20 Jun 30 21:36 /usr/local/lib/libllama.so.0 -> libllama.so.0.0.9851
+-rwxr-xr-x 1 root root  3852032 Jun 27 23:07 /usr/local/lib/libllama.so.0.0.9828
+-rwxr-xr-x 1 root root  4070208 Jun 30 21:35 /usr/local/lib/libllama.so.0.0.9851
