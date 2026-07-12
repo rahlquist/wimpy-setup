@@ -1,413 +1,381 @@
 #!/usr/bin/env bash
-# fetch-model.sh (v3, ROCm-aware) — fetch a GGUF, smoke-test it on the GPU at
-# full context, then register it in llama-swap-config.yaml. Auto-detects your
-# setup so you can run it with just the paste from a HF model card.
+# fetch-model.sh — download one explicit Hugging Face GGUF, inspect its local
+# metadata, smoke-test it on the configured GPU, register it in llama-swap, and
+# update the repository model inventory.
 #
 # Usage:
-#   ./fetch-model.sh [options] "<hf spec>"
+#   ./fetch-model.sh [options] "hf download hf://owner/repo/file.gguf [N]"
+#   ./fetch-model.sh [options] "hf://owner/repo/file.gguf" [N]
 #
-# <hf spec> accepts any paste form:
-#   "hf download hf://owner/repo/file.gguf"
-#   "hf download owner/repo file.gguf"
-#   "owner/repo/file.gguf"  |  "owner/repo"  |  a full huggingface.co URL
+# The optional trailing N is --n-cpu-moe N. It is accepted only for models whose
+# downloaded GGUF metadata proves they are MoE models. The script never evals a
+# pasted command and never guesses a CPU-MoE layer count.
 #
-# Example:
-#   ./fetch-model.sh "hf download hf://unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-Q5_K_M.gguf"
-#
-# Options:
-#   -n NAME   llama-swap model id            (default: derived from filename)
-#   -q Q      quant tag if spec has no file  (default: Q6_K)
-#   -c N      smoke-test context             (default: 65536)
-#   -s hf|path  force reference style        (default: auto-detect from your config)
-#   -d DEVICE force GPU device (e.g. ROCm0, CUDA0) (default: auto-detect)
-#   -y        skip the "detected" confirmation prompt
-#   --no-smoke / --no-register
-#   -h        help
-#
-# Auto-detected, override via env if needed:
-#   MODELS_DIR (default ~/.cache/llama.cpp)  LLAMA_SERVER  LLAMA_SWAP_CONFIG
-#
-# wimpy-specific behavior (see CLAUDE.md / CHANGELOG.md for why):
-#   - GPU device pin is REQUIRED, not optional. This script refuses to
-#     register a model without an explicit --device/env pin — that's the
-#     exact silent-CPU-fallback bug the 2026-07-07 ROCm migration fixed.
-#   - Registers into this repo's llama-swap-config.yaml (the source of
-#     truth), NOT /etc/llama-swap/config.yaml directly. Deploying to
-#     production is printed as a final manual step, not auto-run — matches
-#     how every other config change in this project works, and llama-swap
-#     runs with -watch-config so deploying is just a `cp`, no restart needed.
-# ---------------------------------------------------------------------------
+# Defaults are deliberate:
+#   * all registered models remain at 65536 context (the Hermes minimum), even
+#     when a model's native GGUF context is higher;
+#   * all entries use a downloaded local --model path; never llama.cpp -hf;
+#   * CPU-MoE offload is absent unless the user explicitly supplies N.
 set -euo pipefail
+
 err(){ printf '\033[31m[ERR]\033[0m  %s\n' "$*" >&2; }
 ok(){  printf '\033[32m[OK]\033[0m   %s\n' "$*"; }
 info(){ printf '\033[36m[..]\033[0m   %s\n' "$*"; }
 warn(){ printf '\033[33m[!!]\033[0m   %s\n' "$*" >&2; }
 die(){ err "$*"; exit 1; }
 
-NAME=""; QUANT="Q6_K"; CTX="65536"; STYLE=""; ASSUME_YES=0
-DO_SMOKE=1; DO_REGISTER=1; SPEC=""; DEVICE_OVERRIDE=""
-while [[ $# -gt 0 ]]; do case "$1" in
-  -n) NAME="$2"; shift 2;;  -q) QUANT="$2"; shift 2;;  -c) CTX="$2"; shift 2;;
-  -s) STYLE="$2"; shift 2;; -y) ASSUME_YES=1; shift;;
-  -d) DEVICE_OVERRIDE="$2"; shift 2;;
-  --no-smoke) DO_SMOKE=0; shift;;  --no-register) DO_REGISTER=0; shift;;
-  -h|--help) sed -n '2,50p' "$0"; exit 0;;
-  -*) die "unknown option: $1";;  *) SPEC="$1"; shift;;
-esac; done
-[[ -n "$SPEC" ]] || die "no HF spec given. See -h."
-command -v hf >/dev/null || die "'hf' not found (pip install -U huggingface_hub)."
-: "${SMOKE_PORT:=18080}"   # smoke-test port, off your prod 8080
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GGUF_INSPECTOR="${GGUF_INSPECTOR:-$SCRIPT_DIR/tools/gguf_metadata.py}"
+INVENTORY_RENDERER="${INVENTORY_RENDERER:-$SCRIPT_DIR/tools/render_model_inventory.py}"
 
-# ---- auto-detect llama-server --------------------------------------------
-detect_server(){
-  [[ -n "${LLAMA_SERVER:-}" ]] && { echo "$LLAMA_SERVER"; return; }
-  # Prefer the known-correct, canonical path explicitly over PATH resolution
-  # — PATH shadowing by a stray build is exactly what caused wimpy's
-  # 2026-07-07 ROCm migration incident (see CLAUDE.md). Never trust a bare
-  # `llama-server` first.
-  #
-  # /usr/local/bin is canonical as of the "stop using pacman for llama.cpp"
-  # switch (05-llama-cpp.sh, source build, version-pinned) — see
-  # CHANGELOG.md. If /usr/bin/llama-server still exists, that's the OLD
-  # llama-cpp-rocm package build; it's checked as a fallback only in case
-  # the source build hasn't been done yet on this machine, not preferred.
-  [[ -x /usr/local/bin/llama-server ]] && { echo /usr/local/bin/llama-server; return; }
-  [[ -x /usr/bin/llama-server ]] && { echo /usr/bin/llama-server; return; }
-  command -v llama-server 2>/dev/null && return
-  local p; for p in "$HOME"/llama.cpp/build/bin/llama-server \
-      "$HOME"/src/llama.cpp/build/bin/llama-server \
-      /opt/llama.cpp/build/bin/llama-server; do
-    [[ -x "$p" ]] && { echo "$p"; return; }
-  done
-}
-# ---- auto-detect llama-swap config ---------------------------------------
-detect_config(){
-  [[ -n "${LLAMA_SWAP_CONFIG:-}" && -f "${LLAMA_SWAP_CONFIG:-}" ]] && { echo "$LLAMA_SWAP_CONFIG"; return; }
-  # Prefer this project's git-tracked source-of-truth file over the deployed
-  # copy. Editing /etc/llama-swap/config.yaml directly would work (llama-swap
-  # runs with -watch-config and hot-reloads) but silently drifts the repo out
-  # of sync with production — that already happened once, see CHANGELOG.md's
-  # "legacy entries" note. Editing the repo file keeps deploy a deliberate,
-  # visible step instead.
-  local git_root
-  git_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-  if [[ -n "$git_root" && -f "$git_root/llama-swap-config.yaml" ]]; then
-    echo "$git_root/llama-swap-config.yaml"; return
-  fi
-  shopt -s nullglob
-  local dirs=( "$HOME/wimpy-setup" "$HOME/.config/llama-swap" "$HOME/llama-swap" "$HOME/.llama-swap" /etc/llama-swap . ) d c
-  for d in "${dirs[@]}"; do            # pass 1: prefer canonical config names
-    for c in "$d/llama-swap-config.yaml" "$d/config.yaml" "$d/config.yml"; do
-      [[ -f "$c" ]] && grep -qE '^[[:space:]]*models:' "$c" 2>/dev/null && { echo "$c"; shopt -u nullglob; return; }
-    done
-  done
-  for d in "${dirs[@]}"; do            # pass 2: any other yaml, skipping NNNN-... backups
-    for c in "$d"/*.y*ml; do
-      [[ "$(basename "$c")" =~ ^[0-9]{8,}- ]] && continue
-      grep -qE '^[[:space:]]*models:' "$c" 2>/dev/null && { echo "$c"; shopt -u nullglob; return; }
-    done
-  done
-  shopt -u nullglob
-}
-# ---- auto-detect GPU device + its pinning env var -------------------------
-# Asks llama-server itself which backend device it sees (most reliable —
-# matches exactly what will be used at runtime), falling back to checking
-# which vendor's smi tool exists. Refuses silently-CPU by design: if nothing
-# is found, GPU_DEVICE stays empty and the caller must die() rather than
-# register a model with no GPU pin at all.
-detect_gpu_device(){
-  local list dev
-  if [[ -n "${LLAMA_SERVER:-}" && -x "${LLAMA_SERVER:-}" ]]; then
-    list="$("$LLAMA_SERVER" --list-devices 2>/dev/null || true)"
-    dev="$(printf '%s\n' "$list" | grep -oE '^(ROCm|CUDA|Vulkan)[0-9]+' | head -n1 || true)"
-    [[ -n "$dev" ]] && { echo "$dev"; return; }
-  fi
-  if command -v rocm-smi >/dev/null 2>&1; then echo "ROCm0"; return; fi
-  if command -v nvidia-smi >/dev/null 2>&1; then echo "CUDA0"; return; fi
-}
-
-LLAMA_SERVER="$(detect_server || true)"
-CONFIG="$(detect_config || true)"
+NAME=""; CTX="65536"; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1
+SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""; AUTO_PUSH=1
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n) NAME="${2:-}"; shift 2;;
+    -c) CTX="${2:-}"; shift 2;;
+    -d) DEVICE_OVERRIDE="${2:-}"; shift 2;;
+    --n-cpu-moe) CPU_MOE="${2:-}"; shift 2;;
+    --no-push) AUTO_PUSH=0; shift;;
+    -y) ASSUME_YES=1; shift;;
+    --no-smoke) DO_SMOKE=0; shift;;
+    --no-register) DO_REGISTER=0; shift;;
+    -h|--help)
+      sed -n '2,22p' "$0"
+      exit 0;;
+    -*) die "unknown option: $1";;
+    *)
+      # Accept both a safely quoted paste and the ordinary unquoted shell form:
+      #   ./fetch-model.sh "hf download hf://owner/repo/file.gguf 21"
+      #   ./fetch-model.sh hf download hf://owner/repo/file.gguf 21
+      if [[ -z "$SPEC" ]]; then SPEC="$1"
+      elif [[ "$SPEC" == "hf" && "$1" == "download" ]]; then SPEC="hf download"
+      elif [[ "$SPEC" == "hf download" ]]; then SPEC="$SPEC $1"
+      elif [[ -z "$CPU_MOE" && "$1" =~ ^[0-9]+$ ]]; then CPU_MOE="$1"
+      else die "unexpected positional argument: $1"
+      fi
+      shift;;
+  esac
+done
+[[ -n "$SPEC" ]] || die "no Hugging Face GGUF spec supplied. See --help."
+# A common paste form puts the optional CPU-MoE count inside the quoted command.
+# Extract it before validating the strict one-file Hugging Face URL.
+if [[ "$SPEC" =~ ^(.*\.gguf)[[:space:]]+([0-9]+)$ ]]; then
+  [[ -z "$CPU_MOE" ]] || die "MoE count was supplied twice"
+  SPEC="${BASH_REMATCH[1]}"
+  CPU_MOE="${BASH_REMATCH[2]}"
+fi
+[[ "$CTX" =~ ^[0-9]+$ ]] && (( CTX >= 65536 )) || die "--ctx-size must be an integer >= 65536"
+[[ -z "$CPU_MOE" || "$CPU_MOE" =~ ^[0-9]+$ ]] || die "--n-cpu-moe must be a non-negative integer"
+command -v hf >/dev/null || die "'hf' not found. Install Hugging Face Hub CLI first."
+command -v python3 >/dev/null || die "python3 is required"
+[[ -f "$GGUF_INSPECTOR" ]] || die "GGUF inspector missing: $GGUF_INSPECTOR"
+: "${SMOKE_PORT:=18080}"
 : "${MODELS_DIR:=$HOME/.cache/llama.cpp}"
 
-if [[ -n "$DEVICE_OVERRIDE" ]]; then GPU_DEVICE="$DEVICE_OVERRIDE"
-else GPU_DEVICE="$(detect_gpu_device || true)"; fi
+# Never evaluate pasted text. Accept the explicitly documented, one-file forms.
+parse_spec(){
+  local value="$1"
+  value="${value#hf download }"
+  value="${value#hf://}"
+  value="${value#https://huggingface.co/}"
+  value="${value#http://huggingface.co/}"
+  value="${value%/resolve/main/*}"
+  value="${value%/blob/main/*}"
+  value="${value#*/resolve/main/}"
+  value="${value#*/blob/main/}"
+  [[ "$value" =~ ^([^/[:space:]]+)/([^/[:space:]]+)/(.+\.gguf)$ ]] || return 1
+  OWNER="${BASH_REMATCH[1]}"
+  REPO="${BASH_REMATCH[2]}"
+  FILE="${BASH_REMATCH[3]}"
+  [[ "$FILE" != /* && "$FILE" != *".."* && "$FILE" != *$'\n'* ]] || return 1
+  REPO_ID="$OWNER/$REPO"
+}
+parse_spec "$SPEC" || die "unsupported HF spec. Expected hf://owner/repo/file.gguf (optionally prefixed with 'hf download ')."
+[[ "$FILE" == *.gguf && "$FILE" != *[[:space:]]* ]] || die "model filename must be one .gguf file"
+
+# The example may be supplied as an unquoted command with a separate final N.
+# The main parser has already put that N in CPU_MOE.
+
+detect_server(){
+  [[ -n "${LLAMA_SERVER:-}" && -x "${LLAMA_SERVER:-}" ]] && { printf '%s\n' "$LLAMA_SERVER"; return; }
+  [[ -x /usr/local/bin/llama-server ]] && { printf '%s\n' /usr/local/bin/llama-server; return; }
+  [[ -x /usr/bin/llama-server ]] && { printf '%s\n' /usr/bin/llama-server; return; }
+  command -v llama-server 2>/dev/null || true
+}
+detect_config(){
+  [[ -n "${LLAMA_SWAP_CONFIG:-}" && -f "${LLAMA_SWAP_CONFIG:-}" ]] && { printf '%s\n' "$LLAMA_SWAP_CONFIG"; return; }
+  local root
+  root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+  [[ -n "$root" && -f "$root/llama-swap-config.yaml" ]] && { printf '%s\n' "$root/llama-swap-config.yaml"; return; }
+}
+detect_gpu_device(){
+  local list device
+  list="$("$LLAMA_SERVER" --list-devices 2>/dev/null || true)"
+  device="$(printf '%s\n' "$list" | grep -oE '^[[:space:]]*(ROCm|CUDA|Vulkan)[0-9]+' | tr -d ' ' | head -n1 || true)"
+  [[ -n "$device" ]] && { printf '%s\n' "$device"; return; }
+  command -v rocm-smi >/dev/null 2>&1 && { printf '%s\n' ROCm0; return; }
+  command -v nvidia-smi >/dev/null 2>&1 && { printf '%s\n' CUDA0; return; }
+}
+
+LLAMA_SERVER="$(detect_server)"
+CONFIG="$(detect_config || true)"
+ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+[[ -n "$LLAMA_SERVER" ]] || die "llama-server not found. Set LLAMA_SERVER=/path/to/llama-server."
+# Automatic commits must never absorb somebody else's uncommitted config or
+# inventory edits. The fetcher owns only the clean source-of-truth files.
+if (( AUTO_PUSH )) && [[ -n "$ROOT" && "$CONFIG" == "$ROOT/llama-swap-config.yaml" ]]; then
+  git -C "$ROOT" diff --quiet -- llama-swap-config.yaml || die "llama-swap-config.yaml has uncommitted edits; commit/stash them before automatic registration"
+  if git -C "$ROOT" ls-files --error-unmatch model-inventory.html >/dev/null 2>&1; then
+    git -C "$ROOT" diff --quiet -- model-inventory.html || die "model-inventory.html has uncommitted edits; commit/stash them before automatic registration"
+  elif [[ -e "$ROOT/model-inventory.html" ]]; then
+    die "model-inventory.html exists but is untracked; add it or remove it before automatic registration"
+  fi
+fi
+GPU_DEVICE="${DEVICE_OVERRIDE:-$(detect_gpu_device || true)}"
 case "$GPU_DEVICE" in
   ROCm*) GPU_ENV_VAR="HIP_VISIBLE_DEVICES";;
   CUDA*) GPU_ENV_VAR="CUDA_VISIBLE_DEVICES";;
   Vulkan*) GPU_ENV_VAR="GGML_VK_VISIBLE_DEVICES";;
-  *) GPU_ENV_VAR="";;
+  *) die "could not determine GPU device. Pass -d ROCm0/CUDA0 explicitly.";;
 esac
-[[ -n "$GPU_DEVICE" && -n "$GPU_ENV_VAR" ]] || die \
-  "couldn't determine a GPU device (\$LLAMA_SERVER --list-devices, rocm-smi, and nvidia-smi all came up empty). Pass -d ROCm0 (or -d CUDA0) explicitly. Refusing to register a model with no GPU pin at all — that's the exact silent-CPU-fallback bug this project already fixed once, see CHANGELOG.md."
-
-# ---- detect reference style + ttl from the existing config ---------------
-if [[ -z "$STYLE" ]]; then
-  if [[ -n "$CONFIG" ]] && grep -qE '(^|[[:space:]])(-hf|--hf-repo)([[:space:]]|=)' "$CONFIG"; then
-    STYLE="hf"; else STYLE="path"; fi
-fi
-TTL="$(grep -hoE 'ttl:[[:space:]]*[0-9]+' "${CONFIG:-/dev/null}" 2>/dev/null \
-      | grep -oE '[0-9]+' | sort | uniq -c | sort -rn | awk 'NR==1{print $2}')"
+TTL="$(grep -hoE 'ttl:[[:space:]]*[0-9]+' "${CONFIG:-/dev/null}" 2>/dev/null | grep -oE '[0-9]+' | sort | uniq -c | sort -rn | awk 'NR==1{print $2}')"
 TTL="${TTL:-300}"
 
-# ---- normalize spec into REPO_ID + FILE + QTAG ---------------------------
-norm="$SPEC"; norm="${norm#hf download }"; norm="${norm## }"; norm="${norm%% }"
-norm="${norm#hf://}"; norm="${norm#https://huggingface.co/}"; norm="${norm#http://huggingface.co/}"
-norm="${norm/\/resolve\/main\//\/}"; norm="${norm/\/blob\/main\//\/}"
-if [[ "$norm" == *" "* && "$norm" != *"/"*" "*"/"* ]]; then norm="${norm// //}"; fi
-IFS='/' read -r OWNER REPO FILE <<< "$norm"
-[[ -n "${OWNER:-}" && -n "${REPO:-}" ]] || die "could not parse owner/repo from: $SPEC"
-REPO_ID="$OWNER/$REPO"; FILE="${FILE:-}"
-if [[ -n "$FILE" && "$FILE" =~ (IQ[0-9][A-Z0-9_]*|Q[0-9]+(_[A-Z0-9]+)*|BF16|F16|F32) ]]; then
-  QTAG="${BASH_REMATCH[1]}"; else QTAG="$QUANT"; fi
-
-# ---- show what we inferred, let the user bail ----------------------------
-echo "  ┌─ detected ─────────────────────────────────────────────"
+printf '%s\n' '  ┌─ detected ─────────────────────────────────────────────'
 printf '  │ repo         : %s\n' "$REPO_ID"
-printf '  │ quant        : %s\n' "$QTAG"
-printf '  │ style        : %s\n' "$STYLE  ($([[ $STYLE == hf ]] && echo 'register as -hf repo:quant' || echo 'download + register as -m path'))"
-printf '  │ llama-server : %s\n' "${LLAMA_SERVER:-<not found - set LLAMA_SERVER>}"
+printf '  │ file         : %s\n' "$FILE"
+printf '  │ llama-server : %s\n' "$LLAMA_SERVER"
 printf '  │ gpu device   : %s  (pin: %s=0)\n' "$GPU_DEVICE" "$GPU_ENV_VAR"
-printf '  │ llama-swap   : %s\n' "${CONFIG:-<not found - set LLAMA_SWAP_CONFIG>}"
+printf '  │ llama-swap   : %s\n' "${CONFIG:-<not found>}"
 printf '  │ models dir   : %s\n' "$MODELS_DIR"
-printf '  │ ttl / ctx    : %s / %s\n' "$TTL" "$CTX"
-echo "  └────────────────────────────────────────────────────────"
-[[ -n "$LLAMA_SERVER" ]] || die "llama-server not found. Set LLAMA_SERVER=/path/to/llama-server."
-if [[ "$ASSUME_YES" -ne 1 ]]; then
-  read -r -p "  proceed? [Y/n] " a; [[ "${a:-Y}" =~ ^[Yy]?$ ]] || { info "aborted."; exit 0; }
+printf '  │ ctx request  : %s\n' "$CTX"
+printf '  │ cpu MoE      : %s\n' "${CPU_MOE:-none}"
+printf '%s\n' '  └────────────────────────────────────────────────────────'
+if (( ! ASSUME_YES )); then
+  read -r -p '  proceed? [Y/n] ' reply
+  [[ "${reply:-Y}" =~ ^[Yy]?$ ]] || { info 'aborted.'; exit 0; }
 fi
 
-# ---- fetch (path style only; hf style fetches during smoke test) ---------
-MODEL_REF=()        # what we pass to llama-server, and later to llama-swap
-if [[ "$STYLE" == "hf" ]]; then
-  MODEL_REF=(-hf "$REPO_ID:$QTAG")
-else
-  if [[ -n "$FILE" ]]; then
-    info "downloading $FILE -> $MODELS_DIR"
-    hf download "$REPO_ID" "$FILE" --local-dir "$MODELS_DIR"
-    MODEL_PATH="$MODELS_DIR/$FILE"
-  else
-    info "downloading *$QTAG* -> $MODELS_DIR"
-    hf download "$REPO_ID" --include "*$QTAG*" --local-dir "$MODELS_DIR"
-    MODEL_PATH="$(find "$MODELS_DIR" -type f -name "*$QTAG*.gguf" | sort | head -n1 || true)"
-  fi
-  [[ -n "${MODEL_PATH:-}" && -f "$MODEL_PATH" ]] || die "downloaded file not found in $MODELS_DIR"
-  ok "downloaded: $MODEL_PATH ($(du -h "$MODEL_PATH" | cut -f1))"
-  MODEL_REF=(-m "$MODEL_PATH")
+mkdir -p "$MODELS_DIR"
+MODEL_PATH="$MODELS_DIR/$FILE"
+info "downloading $REPO_ID/$FILE -> $MODEL_PATH"
+hf download "$REPO_ID" "$FILE" --local-dir "$MODELS_DIR"
+[[ -f "$MODEL_PATH" ]] || die "download completed but exact model file was not found: $MODEL_PATH"
+ok "downloaded: $MODEL_PATH ($(du -h "$MODEL_PATH" | cut -f1))"
+
+METADATA_JSON="$(python3 "$GGUF_INSPECTOR" "$MODEL_PATH")" || die "could not inspect downloaded GGUF metadata"
+read -r ARCH NATIVE_CTX BLOCKS EXPERTS EXPERTS_USED <<EOF_META
+$(python3 - "$METADATA_JSON" <<'PY'
+import json, sys
+m=json.loads(sys.argv[1])
+print(m.get('architecture',''), m.get('context_length',''), m.get('block_count',''), m.get('expert_count',0), m.get('expert_used_count',0))
+PY
+)
+EOF_META
+# Description is recovered separately so spaces do not corrupt shell fields.
+DESCRIPTION="$(python3 - "$METADATA_JSON" <<'PY'
+import json,sys
+print(json.loads(sys.argv[1]).get('description','').replace('\n',' ').strip())
+PY
+)"
+[[ "$NATIVE_CTX" =~ ^[0-9]+$ ]] || die "GGUF has no usable native context metadata"
+(( NATIVE_CTX >= 65536 )) || die "GGUF native context is $NATIVE_CTX, below required 65536; config untouched."
+if (( CTX > NATIVE_CTX )); then
+  die "requested context $CTX exceeds GGUF native context $NATIVE_CTX; config untouched."
+fi
+if (( CTX < NATIVE_CTX )); then
+  info "GGUF native context: $NATIVE_CTX; retaining project default ctx=$CTX. Use -c $NATIVE_CTX only after testing that allocation."
+fi
+printf '  │ architecture : %s\n  │ native ctx   : %s\n' "$ARCH" "$NATIVE_CTX"
+if (( EXPERTS > 0 )); then
+  printf '  │ MoE          : %s experts/layer, %s active; %s blocks\n' "$EXPERTS" "$EXPERTS_USED" "$BLOCKS"
+fi
+if [[ -n "$CPU_MOE" ]]; then
+  (( EXPERTS > 0 )) || die "--n-cpu-moe was supplied but GGUF metadata says this is not an MoE model"
+  [[ "$BLOCKS" =~ ^[0-9]+$ ]] || die "GGUF lacks block_count; cannot validate --n-cpu-moe"
+  (( CPU_MOE <= BLOCKS )) || die "--n-cpu-moe must be between 0 and $BLOCKS for this model"
 fi
 
-# default model id
 if [[ -z "$NAME" ]]; then
-  base="${FILE:-$REPO-$QTAG}"; base="${base%.gguf}"
-  NAME="$(echo "$base" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//')"
+  base="${FILE%.gguf}"
+  NAME="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//')"
 fi
+[[ "$NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "model id must contain only lowercase letters, digits, and hyphens"
 
-# ---- smoke test -----------------------------------------------------------
-SERVER_PID=""; SMOKE_LOG="$(mktemp /tmp/fetch-model.smoke.XXXXXX.log)"
-cleanup(){ if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
-    kill "$SERVER_PID" 2>/dev/null||true; wait "$SERVER_PID" 2>/dev/null||true; fi; }
+MOE_ARG=()
+[[ -n "$CPU_MOE" ]] && MOE_ARG=(--n-cpu-moe "$CPU_MOE")
+CMD_LINES=(
+  "$LLAMA_SERVER --model $MODEL_PATH"
+  "--n-gpu-layers 99 ${MOE_ARG[*]:-} --device $GPU_DEVICE --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size $CTX --jinja"
+  '--host 0.0.0.0 --port ${PORT} --metrics'
+)
+# Remove the harmless double space when MoE offload is not configured.
+CMD_LINES[1]="$(printf '%s' "${CMD_LINES[1]}" | tr -s ' ')"
+
+SERVER_PID=""; SMOKE_LOG=""
+cleanup(){
+  if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+  fi
+  [[ -n "$SMOKE_LOG" ]] && rm -f "$SMOKE_LOG"
+  return 0
+}
 trap cleanup EXIT INT TERM
-
 smoke_test(){
-  # hf style may download multi-GB on first run, so give it room + a heartbeat
-  local timeout=180; [[ "$STYLE" == "hf" ]] && timeout=1800
-  info "smoke test: ${MODEL_REF[*]}  (ctx=$CTX, device=$GPU_DEVICE, full GPU, q4_0 KV)"
-  env "${GPU_ENV_VAR}=0" "$LLAMA_SERVER" "${MODEL_REF[@]}" -ngl 99 --device "$GPU_DEVICE" \
-    -fa on -ctk q4_0 -ctv q4_0 -c "$CTX" --jinja \
+  SMOKE_LOG="$(mktemp /tmp/fetch-model.smoke.XXXXXX.log)"
+  info "smoke test: ctx=$CTX device=$GPU_DEVICE cpu-moe=${CPU_MOE:-none}"
+  env "${GPU_ENV_VAR}=0" "$LLAMA_SERVER" --model "$MODEL_PATH" --n-gpu-layers 99 "${MOE_ARG[@]}" \
+    --device "$GPU_DEVICE" --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size "$CTX" --jinja \
     --host 127.0.0.1 --port "$SMOKE_PORT" >"$SMOKE_LOG" 2>&1 &
   SERVER_PID=$!
-  local ready=0 i code last=""
-  for ((i=0; i<timeout; i++)); do
+  local i code ready=0
+  for ((i=0; i<180; i++)); do
     kill -0 "$SERVER_PID" 2>/dev/null || break
-    code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SMOKE_PORT/health" 2>/dev/null||true)"
-    [[ "$code" == "200" ]] && { ready=1; break; }
-    if (( i % 10 == 9 )); then   # heartbeat: surface download/load progress
-      local cur; cur="$(tail -n1 "$SMOKE_LOG" 2>/dev/null||true)"
-      [[ -n "$cur" && "$cur" != "$last" ]] && { printf '       … %s\n' "${cur:0:90}"; last="$cur"; }
-    fi
+    code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SMOKE_PORT/health" 2>/dev/null || true)"
+    [[ "$code" == 200 ]] && { ready=1; break; }
     sleep 1
   done
-  if [[ "$ready" -ne 1 ]]; then
-    err "did NOT come up at ctx=$CTX — likely OOM / won't fit, arch unsupported, or the GPU device pin ($GPU_DEVICE) failed to bind."
-    grep -iE 'out of memory|hipMalloc|cudaMalloc|HIP error|CUDA error|failed to allocate|unknown model architecture|error loading model|device.*not found|no devices' "$SMOKE_LOG"|tail -8 >&2||true
-    warn "log: $SMOKE_LOG  — try -q Q4_K_M, a smaller -c, or --n-cpu-moe N if this is a MoE model."; return 1
+  if (( ! ready )); then
+    err "smoke test did not become healthy at ctx=$CTX"
+    grep -iE 'out of memory|hipMalloc|cudaMalloc|failed to allocate|unknown model architecture|error loading model|device.*not found|no devices' "$SMOKE_LOG" | tail -10 >&2 || true
+    return 1
   fi
-  local gen offload nctx
-  gen="$(curl -s --max-time 30 "http://127.0.0.1:$SMOKE_PORT/completion" -H 'Content-Type: application/json' \
-        -d '{"prompt":"def add(a,b):\n    return","n_predict":12,"temperature":0}' \
-        | python3 -c 'import sys,json;print(json.load(sys.stdin).get("content","").strip()[:60])' 2>/dev/null||true)"
-  # Broadened on purpose: llama.cpp's exact offload-summary phrasing has
-  # varied across builds/backends (dense vs. MoE models log this
-  # differently), so this matches any line mentioning offload or gpu that
-  # contains an N/M count, rather than requiring one specific sentence
-  # shape. Still just a heuristic confirmation on top of the real check
-  # below (rocm-smi/nvidia-smi VRAM usage), not the source of truth.
-  offload="$(grep -iE 'offload|gpu' "$SMOKE_LOG"|grep -oE '[0-9]+/[0-9]+'|tail -1||true)"
-  nctx="$(grep -oE 'n_ctx[^=]*= *[0-9]+' "$SMOKE_LOG"|tail -1||true)"
-  echo; ok "loaded and healthy at ctx=$CTX on $GPU_DEVICE"
-  [[ -n "$offload" ]] && info "layers: $offload" || warn "couldn't confirm offload from log"
-  [[ -n "$nctx" ]] && info "context: $nctx"
-  [[ -n "$gen" ]] && info "generation: '$gen'" || warn "generation probe empty"
-  echo "    --- GPU memory while loaded ---"
-  if [[ "$GPU_ENV_VAR" == "HIP_VISIBLE_DEVICES" ]] && command -v rocm-smi >/dev/null 2>&1; then
-    rocm-smi --showmeminfo vram 2>/dev/null | sed 's/^/    /' || warn "rocm-smi failed"
-  elif command -v nvidia-smi >/dev/null 2>&1; then
-    nvidia-smi --query-gpu=index,name,memory.used,memory.total --format=csv,noheader 2>/dev/null | sed 's/^/    /' || warn "nvidia-smi failed"
-  else
-    warn "no GPU memory tool found (rocm-smi/nvidia-smi)"
+  if grep -qiE 'no GPU.*offload|offload.*CPU only|using CPU backend only' "$SMOKE_LOG"; then
+    err "smoke test indicates CPU-only fallback; refusing registration"
+    return 1
   fi
-  echo
-  if [[ -n "$offload" ]]; then
-    local g="${offload%%/*}" t="${offload##*/}"
-    [[ "$g" == "$t" ]] || { err "only $g/$t layers on GPU — spilled to CPU despite the --device pin. If this is a large MoE model, that may be intentional (--n-cpu-moe); otherwise don't register it as-is."; return 1; }
-  fi
+  ok "loaded and healthy at ctx=$CTX on $GPU_DEVICE"
+  if [[ -n "$CPU_MOE" ]]; then info "intentional MoE expert CPU placement: first $CPU_MOE blocks"; fi
+  cleanup; SERVER_PID=""; SMOKE_LOG=""
 }
-if [[ "$DO_SMOKE" -eq 1 ]]; then
-  smoke_test || { cleanup; die "smoke test failed — not registering."; }
-  cleanup; ok "smoke test passed."
-else warn "smoke test skipped."; fi
-
-# ---- register -------------------------------------------------------------
-[[ "$DO_REGISTER" -eq 1 ]] || { info "registration skipped. id would be: $NAME"; exit 0; }
-
-# llama-swap launch line, in the same reference style as your other models
-CMD_REF="${MODEL_REF[*]}"
-read -r -d '' CMD_BLOCK <<EOF || true
-$LLAMA_SERVER $CMD_REF
--ngl 99 --device $GPU_DEVICE -fa on -ctk q4_0 -ctv q4_0 -c $CTX --jinja
---host 0.0.0.0 --port \${PORT} --metrics
-EOF
-print_snippet(){ cat <<EOF
-# --- paste under your 'models:' key (match sibling indentation) ---
-  "$NAME":
-    ttl: $TTL
-    env: ["$GPU_ENV_VAR=0"]
-    cmd: |
-$(printf '%s\n' "$CMD_BLOCK"|sed 's/^/      /')
-EOF
-}
-if [[ -z "$CONFIG" ]]; then
-  warn "llama-swap config not found. Add this manually:"; print_snippet; exit 0; fi
-command -v python3 >/dev/null || {
-  warn "python3 not found — can't safely edit YAML. Paste this under 'models:':"
-  print_snippet; exit 0; }
-
-# Use sudo only for the privileged file ops if the config dir isn't user-writable
-# (only relevant if CONFIG resolved to /etc/llama-swap/config.yaml directly).
-WRITE=""
-if [[ ! -w "$(dirname "$CONFIG")" || ( -e "$CONFIG" && ! -w "$CONFIG" ) ]]; then
-  WRITE="sudo"; info "config dir is root-owned — using sudo for the backup + edit."
-fi
-
-# Standing rule: back up a working config before touching it — unless it's
-# git-tracked, in which case git itself is already the backup and a
-# timestamped copy is just repo clutter (restore via `git checkout` instead).
-GIT_TRACKED=0
-if git -C "$(dirname "$CONFIG")" ls-files --error-unmatch "$(basename "$CONFIG")" >/dev/null 2>&1; then
-  GIT_TRACKED=1
-fi
-if [[ "$GIT_TRACKED" -eq 1 ]]; then
-  info "config is git-tracked — skipping timestamped backup file (git history covers it)."
+if (( DO_SMOKE )); then
+  smoke_test || die "smoke test failed; model was not registered"
 else
-  BACKUP="$(dirname "$CONFIG")/$(date +%Y%m%d%H%M%S)-$(basename "$CONFIG")"
-  $WRITE cp "$CONFIG" "$BACKUP"; ok "backed up -> $BACKUP"
+  warn 'smoke test skipped.'
 fi
 
-CMDFILE="$(mktemp /tmp/fetch-model.cmd.XXXXXX)"; printf '%s\n' "$CMD_BLOCK" > "$CMDFILE"
+(( DO_REGISTER )) || { info "registration skipped. id would be: $NAME"; exit 0; }
+[[ -n "$CONFIG" ]] || die "llama-swap config not found. Set LLAMA_SWAP_CONFIG."
+[[ -w "$CONFIG" ]] || die "config is not writable: $CONFIG"
+
+# Insert using a constrained textual transformation. It preserves comments and
+# formatting, validates before replacement, and never uses yq or git checkout.
+CMDFILE="$(mktemp /tmp/fetch-model.cmd.XXXXXX)"
+printf '%s\n' "${CMD_LINES[@]}" > "$CMDFILE"
 set +e
-$WRITE python3 - "$CONFIG" "$NAME" "$TTL" "$CMDFILE" "$GPU_ENV_VAR" <<'PY'
-import sys, re, os
-cfg, name, ttl, cmdfile, gpu_env = sys.argv[1:6]
-name = name.strip('"').strip("'")
-with open(cmdfile) as f:
-    cmd_lines = [l.rstrip('\n') for l in f if l.strip()]
-with open(cfg) as f:
-    text = f.read()
-lines = text.split('\n')
-
-# locate the top-level 'models:' key (column 0)
-mi = next((i for i,l in enumerate(lines) if re.match(r'^models:\s*(#.*)?$', l)), None)
-if mi is None:
-    sys.stderr.write("no top-level 'models:' key found\n"); sys.exit(2)
-
-# detect child-key indent (ind1) and the indent step used under an entry
-ind1, first = None, None
-for j in range(mi+1, len(lines)):
-    l = lines[j]
-    if not l.strip() or l.lstrip().startswith('#'): continue
-    m = re.match(r'^(\s+)\S', l)
-    if not m: break                      # dedented to col 0 -> models is empty
-    ind1, first = m.group(1), j; break
-if ind1 is None: ind1 = '  '
-
-existing, step = set(), '  '
-if first is not None:
-    base = len(ind1)
-    for l in lines[mi+1:]:
-        if not l.strip() or l.lstrip().startswith('#'): continue
-        m = re.match(r'^(\s*)\S', l)
-        if len(m.group(1)) == 0: break    # next top-level key -> end of models
-        if len(m.group(1)) == base:
-            km = re.match(r'^\s+(["\']?)([^"\':]+)\1\s*:', l)
-            if km: existing.add(km.group(2).strip())
-    for l in lines[first+1:]:             # find field indent -> infer step
-        if not l.strip() or l.lstrip().startswith('#'): continue
-        m = re.match(r'^(\s+)\S', l)
-        if not m or len(m.group(1)) <= base: break
-        step = ' ' * (len(m.group(1)) - base); break
-
-if name in existing:
-    sys.stderr.write("DUPLICATE\n"); sys.exit(3)
-
-i2, i3 = ind1+step, ind1+step+step
-block = [f'{ind1}"{name}":', f'{i2}ttl: {ttl}', f'{i2}env: ["{gpu_env}=0"]', f'{i2}cmd: |'] \
-        + [f'{i3}{c}' for c in cmd_lines]
-new = lines[:mi+1] + block + lines[mi+1:]
-new_text = '\n'.join(new)
-
-# validate BEFORE writing: top-level shape unchanged, and (if PyYAML present) it parses
-top = lambda t: [l for l in t.split('\n') if re.match(r'^\S', l)]
-if top(new_text) != top(text):
-    sys.stderr.write("top-level structure would change\n"); sys.exit(4)
-try:
-    import yaml
-    d = yaml.safe_load(new_text)
-    if not isinstance(d.get('models'), dict) or name not in d['models']:
-        sys.stderr.write("post-parse check failed\n"); sys.exit(4)
-except ImportError:
-    pass
-except Exception as e:
-    sys.stderr.write(f"yaml parse error: {e}\n"); sys.exit(4)
-
-tmp = os.path.join(os.path.dirname(os.path.abspath(cfg)), f".{os.path.basename(cfg)}.tmp")
-with open(tmp,'w') as f: f.write(new_text)
-os.replace(tmp, cfg)
+python3 - "$CONFIG" "$NAME" "$TTL" "$CMDFILE" "$GPU_ENV_VAR" <<'PY'
+import os, re, sys
+cfg, name, ttl, cmdfile, gpu_env = sys.argv[1:]
+with open(cfg, encoding='utf-8') as f: text=f.read()
+lines=text.splitlines()
+mi=next((i for i,l in enumerate(lines) if re.match(r'^models:\s*(?:#.*)?$', l)), None)
+if mi is None: raise SystemExit('no top-level models: key found')
+child_indent='  '
+for line in lines[mi+1:]:
+    if not line.strip() or line.lstrip().startswith('#'): continue
+    if not line.startswith((' ', '\t')): break
+    child_indent=re.match(r'^(\s+)',line).group(1); break
+field_indent=child_indent+'  '
+cmd_indent=field_indent+'  '
+existing=set()
+for line in lines[mi+1:]:
+    if not line.strip() or line.lstrip().startswith('#'): continue
+    if not line.startswith((' ', '\t')): break
+    m=re.match(r'^'+re.escape(child_indent)+r'["\']?([^"\':]+)["\']?\s*:',line)
+    if m: existing.add(m.group(1))
+if name in existing: raise SystemExit('DUPLICATE')
+with open(cmdfile, encoding='utf-8') as f: command=[x.rstrip('\n') for x in f]
+block=[f'{child_indent}"{name}":', f'{field_indent}ttl: {ttl}', f'{field_indent}env: ["{gpu_env}=0"]', f'{field_indent}cmd: |'] + [cmd_indent+x for x in command]
+new='\n'.join(lines[:mi+1]+block+lines[mi+1:])+'\n'
+if [l for l in new.splitlines() if re.match(r'^\S',l)] != [l for l in text.splitlines() if re.match(r'^\S',l)]:
+    raise SystemExit('top-level structure would change')
+tmp=cfg+'.tmp'
+with open(tmp,'w',encoding='utf-8') as f: f.write(new)
+os.replace(tmp,cfg)
 PY
-rc=$?; set -e
+rc=$?
+set -e
 rm -f "$CMDFILE"
 case "$rc" in
-  0)
-    ok "registered '$NAME' in $CONFIG."
-    if [[ "$CONFIG" == "/etc/llama-swap/config.yaml" ]]; then
-      warn "this IS the live deployed config — llama-swap runs with -watch-config, so it has likely already hot-reloaded. Remember to sync this into the wimpy-setup repo (git add/commit) so it doesn't drift out of git, same issue as the legacy entries noted in CHANGELOG.md."
-    else
-      info "this is the repo copy — not deployed yet. To go live:"
-      info "  sudo cp /etc/llama-swap/config.yaml /etc/llama-swap/\$(date +%Y%m%d%H%M%S)-config.yaml.bak"
-      info "  sudo cp \"$CONFIG\" /etc/llama-swap/config.yaml"
-      info "  # no restart needed — llama-swap runs with -watch-config and hot-reloads automatically"
-      info "Then commit: git -C \"$(dirname "$CONFIG")\" add \"$(basename "$CONFIG")\" && git -C \"$(dirname "$CONFIG")\" commit -m \"Add $NAME to llama-swap config\""
-    fi
-    exit 0;;
-  3) warn "model id '$NAME' already present — config untouched. Use -n for another id."
-     [[ "$GIT_TRACKED" -eq 0 ]] && $WRITE rm -f "$BACKUP"   # nothing changed; drop the redundant backup
-     exit 0;;
-  *) err "insert/validate failed (code $rc) — restoring."
-     if [[ "$GIT_TRACKED" -eq 1 ]]; then
-       git -C "$(dirname "$CONFIG")" checkout -- "$(basename "$CONFIG")"
-       warn "restored via git checkout. Add manually instead:"
-     else
-       $WRITE cp "$BACKUP" "$CONFIG"
-       warn "restored from $BACKUP. Add manually instead:"
-     fi
-     print_snippet; exit 1;;
+  0) ok "registered '$NAME' in $CONFIG.";;
+  3) warn "model id '$NAME' already exists; config untouched."; exit 0;;
+  *) die "config insertion failed; config untouched.";;
 esac
+
+# Store metadata in the repository. It makes inventory generation reproducible,
+# avoids putting untracked sidecars in a model cache, and retains inspection
+# evidence even when a model is moved or re-downloaded.
+METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
+mkdir -p "$METADATA_DIR"
+SIDECAR="$METADATA_DIR/$NAME.json"
+python3 - "$SIDECAR" "$NAME" "$REPO_ID" "$FILE" "$MODEL_PATH" "$CTX" "$NATIVE_CTX" "$CPU_MOE" "$METADATA_JSON" "$DESCRIPTION" <<'PY'
+import json,sys,datetime
+out,alias,repo,file,path,ctx,native,cpu,metadata,description=sys.argv[1:]
+m=json.loads(metadata)
+data={
+  'alias':alias, 'repository':repo, 'filename':file, 'model_path':path,
+  'downloaded_at':datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'),
+  'requested_context':int(ctx), 'native_context':int(native),
+  'n_cpu_moe':int(cpu) if cpu else None, 'gguf':m,
+  'description':description or m.get('name') or f'GGUF from {repo}',
+}
+with open(out,'w',encoding='utf-8') as f: json.dump(data,f,indent=2,sort_keys=True); f.write('\n')
+PY
+ok "wrote metadata sidecar: $SIDECAR"
+
+if [[ -x "$INVENTORY_RENDERER" || -f "$INVENTORY_RENDERER" ]]; then
+  python3 "$INVENTORY_RENDERER" "$CONFIG" "$SCRIPT_DIR/model-inventory.html" "$METADATA_DIR"
+  ok "updated model inventory: $SCRIPT_DIR/model-inventory.html"
+else
+  warn "inventory renderer missing: $INVENTORY_RENDERER"
+fi
+
+if [[ "$CONFIG" != /etc/llama-swap/config.yaml ]]; then
+  info 'To deploy: first back up /etc/llama-swap/config.yaml, then copy this repository config there. llama-swap watches config changes; no restart is needed.'
+fi
+
+# User requested automatic commit/push after successful updates. The tracked
+# metadata sidecar and generated inventory are staged with the source config.
+# Prefer an already-exported GitHub token; otherwise use BWSM when this host was
+# provisioned with BWS_ACCESS_TOKEN. The token exists only in this process and
+# is passed to Git through a temporary askpass helper, never into git config.
+github_token(){
+  [[ -n "${GITHUB_TOKEN:-}" ]] && { printf '%s' "$GITHUB_TOKEN"; return; }
+  local bws project secret
+  bws="${BWS_BIN:-$HOME/.local/bin/bws}"
+  [[ -x "$bws" && -n "${BWS_ACCESS_TOKEN:-}" ]] || return 1
+  project="$($bws project list | python3 -c 'import json,sys; print(next((x["id"] for x in json.load(sys.stdin) if x.get("name")=="Hermes"), ""))')"
+  [[ -n "$project" ]] || return 1
+  secret="$($bws secret list "$project" | python3 -c 'import json,sys; print(next((x["id"] for x in json.load(sys.stdin) if x.get("key")=="GITHUB_TOKEN"), ""))')"
+  [[ -n "$secret" ]] || return 1
+  "$bws" secret get "$secret" | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"], end="")'
+}
+push_with_token(){
+  local token askpass rc
+  token="$(github_token)" || return 1
+  [[ -n "$token" ]] || return 1
+  askpass="$(mktemp /tmp/fetch-model.git-askpass.XXXXXX)"
+  printf '#!/bin/sh\nprintf %%s "${GIT_ASKPASS_TOKEN}"\n' > "$askpass"
+  chmod 700 "$askpass"
+  set +e
+  GIT_ASKPASS="$askpass" GIT_ASKPASS_TOKEN="$token" GIT_TERMINAL_PROMPT=0 git -C "$ROOT" push origin HEAD
+  rc=$?
+  set -e
+  rm -f "$askpass"
+  unset token
+  return "$rc"
+}
+if (( AUTO_PUSH )) && [[ -n "$ROOT" ]]; then
+  git -C "$ROOT" add llama-swap-config.yaml model-inventory.html model-metadata/
+  if ! git -C "$ROOT" diff --cached --quiet; then
+    git -C "$ROOT" commit -m "feat(models): add $NAME"
+    push_with_token || die "commit succeeded locally but GitHub push failed; repair authentication/network and run: git -C \"$ROOT\" push origin HEAD"
+    ok "committed and pushed model configuration and inventory"
+  else
+    info 'no tracked config/inventory changes to commit'
+  fi
+fi
+
+exit 0

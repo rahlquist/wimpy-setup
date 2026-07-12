@@ -96,8 +96,18 @@ curl http://wimpy.home.lan:8080/v1/models   # verify wimpy reachable
 - `llama-swap-config.yaml` — deploy to `/etc/llama-swap/config.yaml`. Every
   model uses an explicit `--model` path to the downloaded file (one consistent
   method — no `-hf` re-downloads). All at 65536 context (Hermes minimum), with
-  flash attention + Q4 quantized KV cache. MoE models use `--n-cpu-moe` to
-  offload experts to system RAM.
+  flash attention + Q4 quantized KV cache. MoE models use explicitly selected
+  `--n-cpu-moe` values to keep expert tensors for the first N blocks in system
+  RAM; the count must be smoke-tested for the hardware/context combination.
+- `fetch-model.sh` — accepts a pasted one-file Hugging Face command such as
+  `./fetch-model.sh "hf download hf://owner/repo/file.gguf 21"`. It downloads an
+  explicit local GGUF, inspects its metadata, validates the optional CPU-MoE
+  block count, smoke-tests the final llama.cpp command, registers the model,
+  updates `model-inventory.html`, then commits and pushes the two tracked files.
+  `--no-push` disables that final remote write.
+- `model-inventory.html` — generated tracked inventory: llama-swap alias,
+  filename, added date, GGUF architecture/native context, description, and
+  effective custom llama.cpp parameters.
 - `llama-swap.service` — the systemd unit (also installed by `05-llama-cpp.sh`).
 
 ### Hugging Face authentication

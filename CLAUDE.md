@@ -255,9 +255,10 @@ one-at-a-time request cadence this is not an issue.
 - `gemma-3-12b` — Q8_0 (~12.5 GB) fits at 64K on 16 GB with room to spare. Was
   flagged as "tight" but confirmed OK in isolation.
 - MoE models (`qwen3-30b-a3b`, `gemma-4-26b-moe`, `ling-mini-2-*`): use
-  `-ngl 99 --n-cpu-moe N`. N is a conservative starting point — lower it to push
-  more experts onto the GPU for speed, watching `rocm-smi` for headroom.
-  `--n-cpu-moe` counts from the highest-numbered layers down.
+  `-ngl 99 --n-cpu-moe N` only after a fit/smoke test. N is hardware- and
+  context-dependent; lower it only after checking `rocm-smi` headroom. Current
+  llama.cpp applies CPU expert placement to the first N transformer blocks
+  (`0..N-1`), not the highest-numbered blocks.
 
 ## Verify from the VM (end-to-end)
 

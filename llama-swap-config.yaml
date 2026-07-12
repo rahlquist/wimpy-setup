@@ -25,7 +25,9 @@
 # GPU PIN : HIP_VISIBLE_DEVICES=0 selects the one ROCm-visible device (the
 #           R9700). Kept explicit even with a single GPU so the pinning
 #           pattern is future-proofed against ever adding a second AMD GPU.
-# CONTEXT : 65536 everywhere — Hermes Agent requires a 64K minimum.
+# CONTEXT : 65536 everywhere — Hermes Agent requires a 64K minimum. fetch-model
+#           inspects the downloaded GGUF's native context first; a larger native
+#           limit is recorded in the inventory but is not enabled automatically.
 # KV CACHE: flash attention + Q4 quantized KV (-fa on, ctk/ctv q4_0) keeps the
 #           64K KV cache small enough to fit alongside weights.
 # BINDING : --host 0.0.0.0 so hermesvm01 can reach models over the br0 bridge.
@@ -36,9 +38,10 @@
 # and avoids any double-download. If your cache dir differs, edit MODELS-equiv
 # paths below (they assume the default ~/.cache/llama.cpp for user rahlquist).
 #
-# MoE entries add: -ngl 99 --n-cpu-moe N  (offload N layers' experts to 64GB RAM).
-# Start N conservative; lower it to push experts onto the GPU for speed while
-# watching `rocm-smi`. --n-cpu-moe counts from the highest-numbered layers down.
+# MoE entries add: -ngl 99 --n-cpu-moe N  (keep the expert tensors for the first
+# N transformer blocks in system RAM). N is hardware- and context-dependent:
+# fetch-model requires an explicit value and validates it against GGUF metadata.
+# Lower it only after checking `rocm-smi` headroom; then re-smoke-test.
 
 healthCheckTimeout: 180
 
