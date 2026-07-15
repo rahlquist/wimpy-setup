@@ -21,8 +21,8 @@ hermes lives inside hermesvm01.
 ## Quick start
 
 ```bash
-git clone <this-repo> ~/wimpy-setup
-cd ~/wimpy-setup
+git clone <this-repo> ~/Downloads/wimpy-setup
+cd ~/Downloads/wimpy-setup
 chmod +x *.sh lib/*.sh
 
 bash run-all.sh           # run all steps

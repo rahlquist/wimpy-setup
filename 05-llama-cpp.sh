@@ -164,6 +164,12 @@ install_llama_swap || warn "llama-swap install skipped — see message above"
 SWAP_CFG="/etc/llama-swap/config.yaml"
 sudo mkdir -p /etc/llama-swap
 
+# Back up any existing config before we touch this path (CLAUDE.md hard rule #1).
+# The write below is guarded by [[ ! -f ]], so this is a no-op on a fresh
+# install; it becomes a real safety net if that guard is ever relaxed.
+[ -f "$SWAP_CFG" ] && sudo cp "$SWAP_CFG" \
+    "/etc/llama-swap/$(date +%Y%m%d%H%M%S)-config.yaml.bak"
+
 if [[ ! -f "$SWAP_CFG" ]]; then
     log "Writing llama-swap config skeleton"
     sudo tee "$SWAP_CFG" > /dev/null <<'CFG'
@@ -210,6 +216,11 @@ fi
 
 # ── systemd service ───────────────────────────────────────────────────────────
 SVCUSER="${SUDO_USER:-$USER}"
+# This tee overwrites the unit unconditionally on every run — back it up first
+# (CLAUDE.md hard rule #1).
+[ -f /etc/systemd/system/llama-swap.service ] && \
+  sudo cp /etc/systemd/system/llama-swap.service \
+          "/etc/systemd/system/$(date +%Y%m%d%H%M%S)-llama-swap.service.bak"
 sudo tee /etc/systemd/system/llama-swap.service > /dev/null <<SVC
 [Unit]
 Description=llama-swap model router (wimpy)
