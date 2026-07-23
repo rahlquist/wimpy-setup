@@ -17,12 +17,13 @@ declare -A STEPS=(
     [01]="01-system-base.sh|System base packages"
     [02]="02-docker.sh|Docker CE + Compose"
     [04]="04-vscodium.sh|VSCodium"
-    [05]="05-llama-cpp.sh|llama.cpp + llama-swap (CUDA sm_120)"
+    [05]="05-llama-cpp.sh|llama.cpp + llama-swap (ROCm/HIP gfx1201, R9700)"
+    [06]="06-llama-cpp-cuda.sh|Second llama.cpp (CUDA sm_120, RTX 5060 Ti) → /opt/llama-cuda"
     [07]="07-claude-code.sh|Claude Code"
     [08]="08-networking.sh|Host bridge br0 on enp10s0 (DHCP)"
     [09]="09-kvm.sh|KVM / QEMU / libvirt / virt-manager"
 )
-STEP_ORDER=(01 02 04 05 07 08 09)
+STEP_ORDER=(01 02 04 05 06 07 08 09)
 
 FROM_STEP="01"
 ONLY_STEP=""
