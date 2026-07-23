@@ -19,7 +19,7 @@ declare -A STEPS=(
     [04]="04-vscodium.sh|VSCodium"
     [05]="05-llama-cpp.sh|llama.cpp + llama-swap (CUDA sm_120)"
     [07]="07-claude-code.sh|Claude Code"
-    [08]="08-networking.sh|Host bridge br0 on enp6s0 (DHCP)"
+    [08]="08-networking.sh|Host bridge br0 on enp10s0 (DHCP)"
     [09]="09-kvm.sh|KVM / QEMU / libvirt / virt-manager"
 )
 STEP_ORDER=(01 02 04 05 07 08 09)

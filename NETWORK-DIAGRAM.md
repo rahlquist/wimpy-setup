@@ -23,7 +23,7 @@
  │   ┌───────────────────────────┐  serves   ┌───────────────────────────────┐  │
  │   │ br0 bridge                │  :8080     │ llama.cpp — inference engine  │  │
  │   │ wimpy.home.lan            │◀──────────│ CUDA sm_120 · flash attn      │  │
- │   │ enp6s0 enslaved           │            │ Q4 KV · 65536 ctx             │  │
+ │   │ enp10s0 enslaved          │            │ Q4 KV · 65536 ctx             │  │
  │   │                           │            │ GPU 0 (RTX 5060 Ti) only      │  │
  │   └───────────────────────────┘            └───────────────┬───────────────┘  │
  │                                                            │ loads via        │
@@ -78,9 +78,9 @@ llama-swap routes between these on demand (one loads at a time per request;
 
 ## How it works
 
-- **One bridge, one LAN.** `enp6s0` (wimpy's physical NIC) is enslaved into
-  `br0`. The host's IP lives on `br0`, not on `enp6s0`. The bridge MAC is pinned
-  to enp6s0's real MAC so the OPNsense DHCP reservation matches and assigns a
+- **One bridge, one LAN.** `enp10s0` (wimpy's physical NIC) is enslaved into
+  `br0`. The host's IP lives on `br0`, not on `enp10s0`. The bridge MAC is pinned
+  to enp10s0's real MAC so the OPNsense DHCP reservation matches and assigns a
   stable address. (Specific IPs/MACs are kept in OPNsense, not this diagram.)
 
 - **Inference is two layers.** `llama.cpp` is the engine (built with CUDA

@@ -12,7 +12,7 @@ MEDIUM = friction/inconsistency, LOW = polish.
 
 - [ ] **C1. 08-networking.sh can lock you out remotely, no guard, no rollback.**
   :24-30 picks NetworkManager whenever it's active even if systemd-networkd
-  owns enp6s0 (nmcli connections may never manage the device; `con up` fails,
+  owns enp10s0 (nmcli connections may never manage the device; `con up` fails,
   swallowed by `|| true` at :85-86). :56 deletes the live connection carrying
   your SSH session BEFORE the bridge is confirmed up; no connectivity check,
   no revert, no confirm prompt.
@@ -64,7 +64,7 @@ MEDIUM = friction/inconsistency, LOW = polish.
   complete; user discovers in step 05. Fix: hard exit 1.
 
 - [ ] **H6. No prerequisites section.**
-  OPNsense + 192.168.8.0/24 + NIC enp6s0 + Arch/CachyOS are unstated hard
+  OPNsense + 192.168.8.0/24 + NIC enp10s0 + Arch/CachyOS are unstated hard
   requirements; `hf auth login` (README:115) appears after the section that
   needs it; no script installs hf. README:38-45 and run-all.sh:95-106 post-setup
   checklists disagree. Fix: Prerequisites block at top + one canonical ordered

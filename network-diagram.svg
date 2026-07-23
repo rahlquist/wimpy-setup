@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="680" height="740" viewBox="0 0 680 740" role="img" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
 <title>wimpy host and hermesvm01 network topology</title>
-<desc>OPNsense runs Unbound DNS and dnsmasq DHCP on the home.lan LAN. The wimpy host (Ryzen 9 3900X 12c/24t, 64GB RAM, RTX 5060 Ti 16GB VRAM) has enp6s0 enslaved into bridge br0 as wimpy.home.lan. llama.cpp with CUDA sm_120 is the inference engine; llama-swap routes requests on port 8080 across 18 models. The hermesvm01 KVM guest connects through libvirt host-bridge to br0 as hermesvm01.home.lan and runs Hermes Agent against wimpy.home.lan:8080.</desc>
+<desc>OPNsense runs Unbound DNS and dnsmasq DHCP on the home.lan LAN. The wimpy host (Ryzen 9 3900X 12c/24t, 64GB RAM, RTX 5060 Ti 16GB VRAM) has enp10s0 enslaved into bridge br0 as wimpy.home.lan. llama.cpp with CUDA sm_120 is the inference engine; llama-swap routes requests on port 8080 across 18 models. The hermesvm01 KVM guest connects through libvirt host-bridge to br0 as hermesvm01.home.lan and runs Hermes Agent against wimpy.home.lan:8080.</desc>
 <style>
   .t  { font-size: 14px; font-weight: 500; }
   .ts { font-size: 12px; }
@@ -31,7 +31,7 @@
 <rect x="56" y="180" width="248" height="84" rx="12" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
 <text class="t" x="180" y="206" text-anchor="middle" fill="#085041">br0 bridge</text>
 <text class="ts" x="180" y="228" text-anchor="middle" fill="#0F6E56">wimpy.home.lan</text>
-<text class="ts" x="180" y="246" text-anchor="middle" fill="#0F6E56">enp6s0 enslaved</text>
+<text class="ts" x="180" y="246" text-anchor="middle" fill="#0F6E56">enp10s0 enslaved</text>
 
 <!-- llama.cpp -->
 <rect x="340" y="180" width="284" height="84" rx="12" fill="#EAF3DE" stroke="#3B6D11" stroke-width="0.5"/>

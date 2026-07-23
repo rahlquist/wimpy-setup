@@ -16,7 +16,7 @@ OPNsense → Services → DHCPv4 → [your LAN interface] → Static Mappings �
 
 **wimpy**
 - MAC address: printed at the end of step 08 on wimpy  
-  (or: `ip link show enp6s0 | grep 'link/ether'`)
+  (or: `ip link show enp10s0 | grep 'link/ether'`)
 - IP address: 192.168.8.248
 - Hostname: wimpy
 
