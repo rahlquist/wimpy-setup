@@ -1,5 +1,53 @@
 # Changelog — wimpy-setup
 
+## Dual-GPU: add the RTX 5060 Ti (CUDA) alongside the R9700 (ROCm) (2026-07-24)
+
+After the 2026-07-23 AM4→AM5 platform swap (ASRock X870 / Ryzen 7 7700 /
+32GB DDR5), the RTX 5060 Ti was reinstalled next to the R9700. Both GPUs now
+serve inference concurrently behind a single `llama-swap`. Verified end-to-end
+on the box: two agents hitting a model on each card ran in true parallel, both
+GPUs at ~98% utilization simultaneously.
+
+### Why two builds, not one binary
+Confirmed by a real test (not assumption) that the existing HIP-only
+`/usr/local/bin/llama-server` cannot use the 5060 Ti: `--device CUDA0` →
+"no usable GPU / invalid device", and no `libggml-cuda.so` existed. llama.cpp's
+HIP backend is the CUDA source hipified — both export the same `ggml_cuda_*`
+symbols and produce libraries with identical filenames (`libggml.so.0`, etc.),
+so `GGML_HIP` and `GGML_CUDA` can't share a binary, and a CUDA install into
+`/usr/local` would clobber the ROCm libs. The fix is a second, isolated build.
+
+### What changed
+- `06-llama-cpp-cuda.sh` (new): builds a second llama.cpp
+  (`-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120`) to the isolated prefix
+  `/opt/llama-cuda`. CUDA 13.3 auto-selected GCC 15.3 as host compiler (the
+  feared GCC-16 incompatibility never materialized; a `CUDA_HOST_COMPILER`
+  override is wired in as an escape hatch). Verifies `CUDA0` appears, that the
+  binary links its own libs from `/opt/llama-cuda/lib` (not `/usr/local`), and
+  that the ROCm build still reports `ROCm0` afterward.
+- `llama-swap-config.yaml`: added two groups — `amd-r9700` and `nvidia-5060ti`,
+  both `swap:true exclusive:false` so one model per GPU stays resident and the
+  cards serve in parallel. Every model is assigned to a group (a model in none
+  falls into the default exclusive group and breaks concurrency). Added 19
+  `-cuda` entries (same GGUF as their AMD twin, `/opt/llama-cuda` binary +
+  `CUDA_VISIBLE_DEVICES=0` / `--device CUDA0`) for the `<16GB` models; the
+  21GB+ dense 30B models and 17–18GB MoE stay AMD-only.
+- MoE re-tune for the 32GB R9700: `--n-cpu-moe` dropped from 36/30/8 to **0**
+  on all five MoE entries. The old values were 16GB-5060Ti-era holdovers that
+  offloaded experts to system RAM; the R9700 fits every MoE model whole
+  (qwen3-30b 20.9GB, gemma-4-26b 18.6GB, ling-q6 14.5GB), so all-GPU is both
+  faster and uses less host RAM — the right direction for the 32GB host.
+- `run-all.sh`: step 05 relabeled ROCm/HIP (was mislabeled "CUDA sm_120");
+  step 06 added to `STEPS`/`STEP_ORDER`.
+- Docs: `README.md` (new "Dual-GPU" section, step table, header), `HARDWARE.md`,
+  `CLAUDE.md`, `NETWORK-DIAGRAM.md` + `network-diagram.svg` all updated for the
+  AM5 dual-GPU reality.
+
+### Gotcha recorded
+A model self-unloads on its `ttl` (300s). When checking cross-GPU concurrency,
+don't mistake a TTL timeout for group eviction — confirm via journalctl
+(`Unloading model, TTL … reached`) before concluding the groups are wrong.
+
 ## Stop using pacman for llama.cpp: rebuild 05-llama-cpp.sh for ROCm/HIP (2026-07-08)
 
 Switched llama.cpp back to a source build (`05-llama-cpp.sh`, rewritten for
