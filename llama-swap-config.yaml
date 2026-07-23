@@ -5,26 +5,25 @@
 #   sudo systemctl restart llama-swap
 #
 # ─────────────────────────────────────────────────────────────────────────────
-# HARDWARE: AMD Radeon AI PRO R9700 32GB (ROCm/HIP) is the inference GPU. As of
-#           the 2026-07-23 platform swap (ASRock X870 / Ryzen 7 7700) the box
-#           also has: the RTX 5060 Ti (NVIDIA/CUDA — invisible to this HIP build,
-#           so not a pinning concern) and the Ryzen 7700's Raphael iGPU (gfx1036,
-#           which DOES enumerate as a ROCm device — see GPU PIN below). This
-#           config targets the R9700 only. NOTE: RAM is now 32GB (was 64GB), so
-#           MoE --n-cpu-moe values below may need re-tuning for the tighter host
-#           RAM budget — re-smoke-test before trusting them.
-# BINARY  : /usr/local/bin/llama-server — built from source via 05-llama-cpp.sh
-#           (ROCm/HIP, gfx1201, floats to latest master on each rebuild —
-#           re-run GPU validation after rebuilding). This replaced the
-#           llama-cpp-rocm/ggml-rocm pacman
-#           packages as the single source of truth; if /usr/bin/llama-server
-#           still exists, that's the OLD package build — do not point
-#           anything at it, and remove the packages once this build is
-#           verified working (see CHANGELOG.md). Do NOT use a bare
-#           `llama-server` here either — PATH-resolving to whichever build
-#           happens to be first on $PATH is exactly what caused silent CPU
-#           fallback during the original CUDA->ROCm migration. Always use
-#           the explicit path.
+# HARDWARE: DUAL-GPU, both used for inference (see the `groups:` block below).
+#           - AMD R9700 32GB (ROCm/HIP gfx1201) — primary, group `amd-r9700`.
+#           - RTX 5060 Ti 16GB (NVIDIA/CUDA sm_120) — group `nvidia-5060ti`, the
+#             `-cuda` model entries. Reinstalled in the 2026-07-23 platform swap
+#             (ASRock X870 / Ryzen 7 7700 / 32GB DDR5).
+#           - Ryzen 7700 Raphael iGPU (gfx1036) — ALSO enumerates as a ROCm
+#             device, so the R9700 is pinned by UUID (see GPU PIN below).
+#           The two groups are exclusive:false, so one model per GPU can be
+#           resident at once and the cards serve concurrently. NOTE: RAM is 32GB
+#           (was 64GB) — MoE --n-cpu-moe is now 0 (all experts fit on the 32GB
+#           R9700); re-smoke-test if you change it.
+# BINARY  : TWO builds, isolated by prefix (they share libggml filenames):
+#           - /usr/local/bin/llama-server — ROCm/HIP (05-llama-cpp.sh), R9700.
+#           - /opt/llama-cuda/bin/llama-server — CUDA (06-llama-cpp-cuda.sh),
+#             5060 Ti. Both float to latest master on rebuild; re-run GPU
+#             validation after. If /usr/bin/llama-server exists it's the OLD
+#             pacman build — never point at it. Do NOT use a bare `llama-server`
+#             (PATH resolution to whichever build is first is what caused silent
+#             CPU fallback in the original migration). Always the explicit path.
 # GPU PIN : HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a pins to the R9700 by its
 #           stable UUID (not index). As of the 2026-07-23 platform swap the
 #           Ryzen 7700's Raphael iGPU (gfx1036) also enumerates as a ROCm device
@@ -32,8 +31,9 @@
 #           "HIP_VISIBLE_DEVICES=0" is fragile — a BIOS/kernel reorder could point
 #           it at the tiny iGPU and silently tank inference. The UUID always
 #           resolves to the R9700 and remaps it to ROCm0, so `--device ROCm0`
-#           stays correct. The RTX 5060 Ti is NVIDIA and invisible to this HIP
-#           build, so it needs no exclusion here. (Get the UUID from `rocminfo`.)
+#           stays correct. (Get the UUID from `rocminfo`.) The RTX 5060 Ti is
+#           invisible to THIS HIP build — it's driven separately by the `-cuda`
+#           entries via the CUDA build with CUDA_VISIBLE_DEVICES=0 + --device CUDA0.
 # CONTEXT : 65536 everywhere — Hermes Agent requires a 64K minimum. fetch-model
 #           inspects the downloaded GGUF's native context first; a larger native
 #           limit is recorded in the inventory but is not enabled automatically.
@@ -330,7 +330,7 @@ models:
         --host 0.0.0.0 --port ${PORT} --jinja --metrics
 
   # ══════════════════════════════════════════════════════════════════════════
-  #  TIER 2 — MoE (expert offload to system RAM, 64GB)
+  #  TIER 2 — MoE (all experts on the 32GB R9700; --n-cpu-moe 0)
   # ══════════════════════════════════════════════════════════════════════════
 
   ling-mini-2-q4:

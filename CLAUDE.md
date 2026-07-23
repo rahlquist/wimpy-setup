@@ -5,9 +5,13 @@ Context for Claude Code working in this directory on the host **wimpy**.
 ## What this machine is
 
 wimpy is a bare-metal inference + VM host. It replaced an older box ("slug").
-- CPU: Ryzen 9 3900X (12c/24t) · RAM: 64 GB · NVMe: 2 TB
-- GPU 0: **RTX 5060 Ti 16 GB** — the inference GPU
-- GPU 1: GeForce GT 710 — display only, must be EXCLUDED from inference
+As of the 2026-07-23 AM4→AM5 platform swap:
+- CPU: Ryzen 7 7700 (8c/8t, SMT off) · RAM: 32 GB DDR5 · NVMe: 2 TB
+- GPU 0: **AMD R9700 32 GB** (ROCm/HIP gfx1201) — primary inference GPU
+- GPU 1: **RTX 5060 Ti 16 GB** (CUDA sm_120) — second inference GPU; runs
+  concurrently via a separate `/opt/llama-cuda` build (see "Dual-GPU" in README)
+- iGPU: Ryzen 7700 Raphael (gfx1036) — enumerates as a ROCm device, so the
+  R9700 is pinned by UUID to avoid selecting it. (The old GT 710 was removed.)
 - OS: CachyOS (Arch-based), bash shell, KDE
 - Network: bridge `br0` on `enp10s0`, static-via-DHCP at **192.168.8.248**,
   hostname **wimpy.home.lan** (DNS/DHCP on OPNsense: Unbound + dnsmasq)
@@ -118,24 +122,29 @@ days / 73 releases behind upstream by the time this was noticed.
   (2026-06-28 incident).
 - **SSH**: passwordless keys set up wimpy↔hermesvm01 (ed25519, both directions).
 - **HuggingFace CLI**: `huggingface-cli` is deprecated on this system; use `hf`.
-- **All 18 models load cleanly** — see load test results below.
+- **Models load cleanly** — see load test results below. (Model set has since
+  grown and split across two GPU groups — 26 on the R9700, 19 `-cuda` aliases
+  on the 5060 Ti; the historical table below is the pre-migration 18.)
 
 ## Hard rules (do not violate)
 
 1. **Back up before modifying any working config.** Timestamped copy first:
    `cp /path/config /path/$(date +%Y%m%d%H%M%S)-config-filename`
    This applies to /etc/llama-swap/config.yaml and any systemd unit.
-2. **GPU pinning is intentional.** Every model entry sets
-   `HIP_VISIBLE_DEVICES=0` (env) and `--device ROCm0` (cmd flag) to pin to the
-   R9700 — the GT 710 has no ROCm/CUDA device at all so it isn't even a
-   pinning candidate, but the explicit pin future-proofs against ever adding
-   a second AMD GPU, and `--device` doubles as a hard-fail: if `ROCm0` isn't
-   available, `llama-server` refuses to start instead of silently falling
-   back to CPU (this is how the 2026-07-07 incident's silent-CPU-fallback
-   failure mode got closed — see CHANGELOG.md). Do NOT remove either.
-   (Historical: this used to be `CUDA_VISIBLE_DEVICES=0` back when the RTX
-   5060 Ti was the inference GPU. If it returns, this pinning scheme needs
-   revisiting — see HARDWARE.md.)
+2. **GPU pinning is intentional (per-GPU).** Two groups, two pins:
+   - **R9700 entries** (group `amd-r9700`): `env HIP_VISIBLE_DEVICES=GPU-<uuid>`
+     (pin by stable UUID, NOT index — the Raphael iGPU also enumerates as a ROCm
+     device, so an index pin could select it) + `--device ROCm0`.
+   - **5060 Ti entries** (group `nvidia-5060ti`, the `-cuda` aliases): `env
+     CUDA_VISIBLE_DEVICES=0` + `--device CUDA0`, running the `/opt/llama-cuda`
+     build.
+   `--device` doubles as a hard-fail: if the named device isn't available,
+   `llama-server` refuses to start instead of silently falling back to CPU (how
+   the 2026-07-07 silent-CPU-fallback mode got closed — see CHANGELOG.md). Do
+   NOT remove either the env pin or the `--device` flag on any entry. (History:
+   pre-migration this was a single `CUDA_VISIBLE_DEVICES=0` on the lone 5060 Ti;
+   the 2026-07-24 dual-GPU work is what split it into the two-group scheme above
+   — see CHANGELOG.md and HARDWARE.md.)
 3. **Use local --model paths, not -hf.** The config deliberately points at the
    files download-models.sh already fetched. Do NOT convert entries to `-hf`
    (that triggers a second, separate download).
