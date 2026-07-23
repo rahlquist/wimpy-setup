@@ -9,7 +9,7 @@ wimpy is a bare-metal inference + VM host. It replaced an older box ("slug").
 - GPU 0: **RTX 5060 Ti 16 GB** — the inference GPU
 - GPU 1: GeForce GT 710 — display only, must be EXCLUDED from inference
 - OS: CachyOS (Arch-based), bash shell, KDE
-- Network: bridge `br0` on `enp6s0`, static-via-DHCP at **192.168.8.248**,
+- Network: bridge `br0` on `enp10s0`, static-via-DHCP at **192.168.8.248**,
   hostname **wimpy.home.lan** (DNS/DHCP on OPNsense: Unbound + dnsmasq)
 
 A KVM guest **hermesvm01** (192.168.8.249) runs Hermes Agent and reaches this

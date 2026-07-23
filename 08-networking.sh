@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 08-networking.sh — configure wimpy as a VM host with bridged networking
 #
-# Creates br0 bridged to enp6s0 in DHCP mode.
+# Creates br0 bridged to enp10s0 in DHCP mode.
 # Your dnsmasq DHCP reservation (MAC → 192.168.8.248) assigns the IP.
 # VMs plug into br0 and get their own DHCP-reserved IPs.
 #
@@ -13,10 +13,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 detect_os
 
-step "08 — Host bridge networking (br0 on enp6s0, DHCP)"
+step "08 — Host bridge networking (br0 on enp10s0, DHCP)"
 require_root_or_sudo
 
-HOST_NIC="enp6s0"
+HOST_NIC="enp10s0"
 BRIDGE="br0"
 
 # Prefer NetworkManager if it's running (CachyOS/KDE default).
@@ -145,7 +145,7 @@ echo "  br0 is up in DHCP mode — waiting for dnsmasq reservation to assign IP"
 echo "  Once the reservation is active: ip addr show br0"
 echo ""
 echo "  Wimpy MAC address for your dnsmasq reservation:"
-ip link show "$HOST_NIC" | grep 'link/ether' | awk '{print "    enp6s0 MAC: " $2}'
+ip link show "$HOST_NIC" | grep 'link/ether' | awk '{print "    enp10s0 MAC: " $2}'
 echo "  → reserve this MAC → 192.168.8.248 in OPNsense DHCP"
 echo ""
 echo "  Next: run 09-kvm.sh"

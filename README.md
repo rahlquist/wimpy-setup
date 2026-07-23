@@ -12,7 +12,7 @@ Wimpy is the bare metal inference and VM host. See `HARDWARE.md` for full specs.
 | 04 | `04-vscodium.sh` | VSCodium |
 | 05 | `05-llama-cpp.sh` | llama.cpp (CUDA sm_120, RTX 5060 Ti) + llama-swap on 0.0.0.0:8080 |
 | 07 | `07-claude-code.sh` | Claude Code |
-| 08 | `08-networking.sh` | br0 bridge on enp6s0 (DHCP), firewall open 8080 |
+| 08 | `08-networking.sh` | br0 bridge on enp10s0 (DHCP), firewall open 8080 |
 | 09 | `09-kvm.sh` | KVM / QEMU / libvirt / virt-manager, registers br0 as host-bridge |
 
 Steps 03 (postgres) and 06 (hermes) are not on the host — postgres is manual,
