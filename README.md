@@ -1,7 +1,8 @@
 # wimpy-setup
 
-Reproducible setup scripts for **wimpy** (Ryzen 9 3900X / 64GB / RTX 5060 Ti).
-Wimpy is the bare metal inference and VM host. See `HARDWARE.md` for full specs.
+Reproducible setup scripts for **wimpy** (Ryzen 7 7700 / 32GB / dual GPU:
+AMD R9700 32GB + NVIDIA RTX 5060 Ti 16GB). Wimpy is the bare metal inference
+and VM host, running both GPUs concurrently. See `HARDWARE.md` for full specs.
 
 ## Wimpy host steps
 
@@ -10,13 +11,15 @@ Wimpy is the bare metal inference and VM host. See `HARDWARE.md` for full specs.
 | 01 | `01-system-base.sh` | Base packages, build tools |
 | 02 | `02-docker.sh` | Docker CE + Compose |
 | 04 | `04-vscodium.sh` | VSCodium |
-| 05 | `05-llama-cpp.sh` | llama.cpp (CUDA sm_120, RTX 5060 Ti) + llama-swap on 0.0.0.0:8080 |
+| 05 | `05-llama-cpp.sh` | llama.cpp (ROCm/HIP gfx1201, R9700) → `/usr/local` + llama-swap on 0.0.0.0:8080 |
+| 06 | `06-llama-cpp-cuda.sh` | Second llama.cpp (CUDA sm_120, RTX 5060 Ti) → isolated `/opt/llama-cuda` |
 | 07 | `07-claude-code.sh` | Claude Code |
 | 08 | `08-networking.sh` | br0 bridge on enp10s0 (DHCP), firewall open 8080 |
 | 09 | `09-kvm.sh` | KVM / QEMU / libvirt / virt-manager, registers br0 as host-bridge |
 
-Steps 03 (postgres) and 06 (hermes) are not on the host — postgres is manual,
-hermes lives inside hermesvm01.
+Step 03 (postgres) is not on the host — it's manual. Hermes is not a host step
+either; it lives inside hermesvm01. Step 06 is optional: run it only if you want
+the RTX 5060 Ti serving models alongside the R9700 (see "Dual-GPU" below).
 
 ## Quick start
 
@@ -91,14 +94,16 @@ curl http://wimpy.home.lan:8080/v1/models   # verify wimpy reachable
 
 ## Models (llama.cpp + llama-swap)
 
-- `download-models.sh` — pulls 18 GGUF models into `~/.cache/llama.cpp/`.
+- `download-models.sh` — pulls the curated GGUF models into `~/.cache/llama.cpp/`.
   Continues past failures and prints a summary. Repo/filenames verified.
 - `llama-swap-config.yaml` — deploy to `/etc/llama-swap/config.yaml`. Every
   model uses an explicit `--model` path to the downloaded file (one consistent
   method — no `-hf` re-downloads). All at 65536 context (Hermes minimum), with
-  flash attention + Q4 quantized KV cache. MoE models use explicitly selected
-  `--n-cpu-moe` values to keep expert tensors for the first N blocks in system
-  RAM; the count must be smoke-tested for the hardware/context combination.
+  flash attention + Q4 quantized KV cache. Split into two GPU groups (see
+  "Dual-GPU" below): the R9700 entries pin by UUID + `--device ROCm0`, the
+  `-cuda` entries use `/opt/llama-cuda/bin/llama-server` + `--device CUDA0`. On
+  the 32GB R9700 all MoE experts now fit on the GPU (`--n-cpu-moe 0`); if you
+  re-tune for tighter VRAM, smoke-test the count per hardware/context.
 - `fetch-model.sh` — accepts a pasted one-file Hugging Face command such as
   `./fetch-model.sh "hf download hf://owner/repo/file.gguf 21"`. It downloads an
   explicit local GGUF, inspects its metadata, validates the optional CPU-MoE
@@ -121,6 +126,28 @@ hf auth login        # paste a token from https://huggingface.co/settings/tokens
 Do NOT commit token files to the repo. `.gitignore` blocks `*token*` and `*.env`
 for this reason. The token is stored by the CLI in `~/.cache/huggingface/`.
 
+## Dual-GPU (R9700 + RTX 5060 Ti)
+
+Both GPUs serve inference at the same time, behind one `llama-swap`:
+
+- **Two llama.cpp builds, isolated.** The ROCm/HIP build (`05-llama-cpp.sh`)
+  installs to `/usr/local`; the CUDA build (`06-llama-cpp-cuda.sh`) installs to
+  `/opt/llama-cuda`. They must stay in separate prefixes — llama.cpp's HIP and
+  CUDA backends share library filenames, so a shared prefix would clobber one.
+  You can't combine both backends in a single binary.
+- **One llama-swap, two groups.** `llama-swap-config.yaml` defines `amd-r9700`
+  (26 models, `--device ROCm0`) and `nvidia-5060ti` (19 `<16GB` models,
+  `--device CUDA0`). Both groups are `exclusive: false`, so one model per GPU
+  can be resident at once and two agents run in parallel — one per card.
+  Every model must belong to a group or it lands in the default exclusive
+  group and breaks concurrency.
+- **Same model, both cards.** A `-cuda` entry is the same GGUF as its AMD twin
+  with the CUDA binary + pin, so either GPU can serve it (routed by model name).
+- **Pinning.** R9700 by stable UUID (`HIP_VISIBLE_DEVICES=GPU-…`) so the Ryzen
+  iGPU — which also enumerates as a ROCm device — can't be picked by accident;
+  5060 Ti by `CUDA_VISIBLE_DEVICES=0`. Both add `--device …0` as a hard-fail
+  guard against silent CPU fallback.
+
 ## Network topology
 
 See `NETWORK-DIAGRAM.md` for the host/VM bridge layout and traffic flow
@@ -129,9 +156,9 @@ See `NETWORK-DIAGRAM.md` for the host/VM bridge layout and traffic flow
 ## Files in this project
 
 ```
-01-system-base.sh        04-vscodium.sh         08-networking.sh
-02-docker.sh             05-llama-cpp.sh        09-kvm.sh
-07-claude-code.sh        10-create-vm-example.sh
+01-system-base.sh        05-llama-cpp.sh        08-networking.sh
+02-docker.sh             06-llama-cpp-cuda.sh   09-kvm.sh
+04-vscodium.sh           07-claude-code.sh      10-create-vm-example.sh
 run-all.sh               lib/common.sh
 
 download-models.sh       llama-swap-config.yaml llama-swap.service
