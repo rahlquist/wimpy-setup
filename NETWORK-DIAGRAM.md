@@ -18,18 +18,18 @@
                                          │
  ┌───────────────────────────────────────▼─────────────────────────────────────┐
  │ wimpy host — bare metal · CachyOS                                             │
- │ Ryzen 9 3900X (12c/24t) · 64GB RAM · RTX 5060 Ti 16GB VRAM · GT 710 (display) │
+ │ Ryzen 7 7700 (8c/8t) · 32GB RAM · R9700 32GB (ROCm) + RTX 5060 Ti 16GB (CUDA) │
  │                                                                               │
  │   ┌───────────────────────────┐  serves   ┌───────────────────────────────┐  │
- │   │ br0 bridge                │  :8080     │ llama.cpp — inference engine  │  │
- │   │ wimpy.home.lan            │◀──────────│ CUDA sm_120 · flash attn      │  │
- │   │ enp10s0 enslaved          │            │ Q4 KV · 65536 ctx             │  │
- │   │                           │            │ GPU 0 (RTX 5060 Ti) only      │  │
+ │   │ br0 bridge                │  :8080     │ llama.cpp — 2 backends        │  │
+ │   │ wimpy.home.lan            │◀──────────│ ROCm → R9700 32GB             │  │
+ │   │ enp10s0 enslaved          │            │ CUDA → 5060 Ti 16GB           │  │
+ │   │                           │            │ 64K ctx · fa · Q4 KV          │  │
  │   └───────────────────────────┘            └───────────────┬───────────────┘  │
  │                                                            │ loads via        │
  │   ┌───────────────────────────┐            ┌───────────────▼───────────────┐  │
  │   │ libvirt host-bridge       │            │ llama-swap · port 8080        │  │
- │   │ attaches to br0 — no NAT  │            │ model router — 18 models      │  │
+ │   │ attaches to br0 — no NAT  │            │ router · 2 GPU groups         │  │
  │   │ VMs join the LAN directly │            │                               │  │
  │   │ ┌───────────────────────┐ │            │ qwen2.5-coder-14b             │  │
  │   │ │ hermesvm01 vNIC       │ │            │ qwen3-30b-a3b (MoE)           │  │
@@ -55,10 +55,14 @@
    future VMs follow the same host-bridge pattern
 ```
 
-## Hosted models (18)
+## Hosted models
 
-llama-swap routes between these on demand (one loads at a time per request;
-`ttl` unloads idle models). MoE models offload experts to system RAM.
+llama-swap routes on demand across two GPU groups: 26 models on the R9700
+(ROCm) and 19 `<16GB` models on the RTX 5060 Ti (CUDA). Within a group one
+model is resident at a time; because the groups are `exclusive: false`, one
+model per GPU can be resident **at once**, so two agents run in parallel — one
+per card. `ttl` unloads idle models. On the 32GB R9700 all MoE experts now fit
+on the GPU (`--n-cpu-moe 0`); the table below lists the model families.
 
 | Model key          | Notes                                         |
 |--------------------|-----------------------------------------------|
@@ -83,10 +87,13 @@ llama-swap routes between these on demand (one loads at a time per request;
   to enp10s0's real MAC so the OPNsense DHCP reservation matches and assigns a
   stable address. (Specific IPs/MACs are kept in OPNsense, not this diagram.)
 
-- **Inference is two layers.** `llama.cpp` is the engine (built with CUDA
-  sm_120 for the RTX 5060 Ti); `llama-swap` is the router that sits in front,
-  binds port 8080 on all interfaces, and loads/unloads models on demand. Hermes
-  and any LAN client talk only to llama-swap.
+- **Inference is two layers.** `llama.cpp` is the engine — here it's **two
+  builds**: a ROCm/HIP build (`/usr/local/bin/llama-server`, gfx1201) for the
+  R9700 and a CUDA build (`/opt/llama-cuda/bin/llama-server`, sm_120) for the
+  RTX 5060 Ti. A single `llama-swap` sits in front of both, binds port 8080 on
+  all interfaces, and loads/unloads models on demand (per-GPU groups let one
+  model on each card be resident at once). Hermes and any LAN client talk only
+  to llama-swap.
 
 - **VMs are first-class LAN peers.** libvirt's `host-bridge` network attaches
   guest vNICs straight onto `br0`. hermesvm01 gets its address from its own
@@ -100,8 +107,11 @@ llama-swap routes between these on demand (one loads at a time per request;
 - **DNS.** Unbound resolves `wimpy.home.lan` and `hermesvm01.home.lan` (plus
   PTRs). See DNS-DHCP-INSTRUCTIONS.md for the actual address assignments.
 
-- **GPU split.** The RTX 5060 Ti (GPU 0) does inference; the GT 710 (GPU 1) is
-  display-only and excluded via `CUDA_VISIBLE_DEVICES=0` in every model entry.
+- **GPU split.** Both cards do inference, concurrently. The R9700 is pinned by
+  stable UUID (`HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a` + `--device ROCm0`) so
+  the Ryzen 7700's Raphael iGPU — which also enumerates as a ROCm device — can't
+  be selected by accident. The RTX 5060 Ti is pinned with `CUDA_VISIBLE_DEVICES=0`
+  + `--device CUDA0`. The old GT 710 display card was removed in the platform swap.
 
 ## Adding future VMs
 

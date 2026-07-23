@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="680" height="740" viewBox="0 0 680 740" role="img" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
 <title>wimpy host and hermesvm01 network topology</title>
-<desc>OPNsense runs Unbound DNS and dnsmasq DHCP on the home.lan LAN. The wimpy host (Ryzen 9 3900X 12c/24t, 64GB RAM, RTX 5060 Ti 16GB VRAM) has enp10s0 enslaved into bridge br0 as wimpy.home.lan. llama.cpp with CUDA sm_120 is the inference engine; llama-swap routes requests on port 8080 across 18 models. The hermesvm01 KVM guest connects through libvirt host-bridge to br0 as hermesvm01.home.lan and runs Hermes Agent against wimpy.home.lan:8080.</desc>
+<desc>OPNsense runs Unbound DNS and dnsmasq DHCP on the home.lan LAN. The wimpy host (Ryzen 7 7700 8c/8t, 32GB RAM, dual GPU: AMD R9700 32GB via ROCm/HIP + NVIDIA RTX 5060 Ti 16GB via CUDA) has enp10s0 enslaved into bridge br0 as wimpy.home.lan. Two llama.cpp builds (one ROCm, one CUDA) run under a single llama-swap on port 8080 with two groups, so a model on each GPU can serve concurrently. The hermesvm01 KVM guest connects through libvirt host-bridge to br0 as hermesvm01.home.lan and runs Hermes Agent against wimpy.home.lan:8080.</desc>
 <style>
   .t  { font-size: 14px; font-weight: 500; }
   .ts { font-size: 12px; }
@@ -25,7 +25,7 @@
 <!-- Host container -->
 <rect x="30" y="114" width="620" height="372" rx="20" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
 <text class="t" x="54" y="140" fill="#0C447C">wimpy host — bare metal · CachyOS</text>
-<text class="ts" x="54" y="160" fill="#185FA5">Ryzen 9 3900X · 12c/24t · 64GB RAM · RTX 5060 Ti 16GB VRAM · GT 710 (display)</text>
+<text class="ts" x="54" y="160" fill="#185FA5">Ryzen 7 7700 · 8c/8t · 32GB RAM · R9700 32GB (ROCm) + RTX 5060 Ti 16GB (CUDA)</text>
 
 <!-- br0 -->
 <rect x="56" y="180" width="248" height="84" rx="12" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
@@ -35,9 +35,9 @@
 
 <!-- llama.cpp -->
 <rect x="340" y="180" width="284" height="84" rx="12" fill="#EAF3DE" stroke="#3B6D11" stroke-width="0.5"/>
-<text class="t" x="482" y="204" text-anchor="middle" fill="#27500A">llama.cpp — inference engine</text>
-<text class="ts" x="482" y="224" text-anchor="middle" fill="#3B6D11">CUDA sm_120 · flash attn · Q4 KV</text>
-<text class="ts" x="482" y="242" text-anchor="middle" fill="#3B6D11">65536 ctx · GPU 0 only (GT 710 excluded)</text>
+<text class="t" x="482" y="200" text-anchor="middle" fill="#27500A">llama.cpp — dual-GPU inference</text>
+<text class="ts" x="482" y="220" text-anchor="middle" fill="#3B6D11">/usr/local · ROCm gfx1201 → R9700 32GB</text>
+<text class="ts" x="482" y="238" text-anchor="middle" fill="#3B6D11">/opt/llama-cuda · sm_120 → 5060 Ti 16GB</text>
 
 <text class="ts" x="482" y="280" text-anchor="middle" fill="#5F5E5A">loads via</text>
 <line x1="482" y1="288" x2="482" y2="266" stroke="#888780" stroke-width="1.5" marker-end="url(#arrow)"/>
@@ -45,7 +45,7 @@
 <!-- llama-swap -->
 <rect x="340" y="288" width="284" height="184" rx="12" fill="#FAEEDA" stroke="#854F0B" stroke-width="0.5"/>
 <text class="t" x="482" y="310" text-anchor="middle" fill="#633806">llama-swap · port 8080</text>
-<text class="ts" x="482" y="328" text-anchor="middle" fill="#854F0B">model router — 18 models</text>
+<text class="ts" x="482" y="328" text-anchor="middle" fill="#854F0B">2 groups · R9700 ‖ 5060 Ti concurrent</text>
 <text class="ts" x="356" y="350" fill="#633806">qwen2.5-coder-14b · qwen3-30b-a3b</text>
 <text class="ts" x="356" y="366" fill="#633806">qwen3.5-9b q4/q6/q8 · phi-4</text>
 <text class="ts" x="356" y="382" fill="#633806">deepseek-r1-14b · mistral-7b</text>
@@ -53,7 +53,7 @@
 <text class="ts" x="356" y="414" fill="#633806">gemma-3-12b · gemma-4-12b</text>
 <text class="ts" x="356" y="430" fill="#633806">gemma-4-26b-moe · llama-2-7b</text>
 <text class="ts" x="356" y="446" fill="#633806">ling-mini-2 q4/q5/q6</text>
-<text class="ts" x="356" y="462" fill="#854F0B">(MoE: -ngl 99 --n-cpu-moe N)</text>
+<text class="ts" x="356" y="462" fill="#854F0B">R9700: 26 models · 5060 Ti: 19 · MoE all-GPU</text>
 
 <!-- libvirt host-bridge -->
 <rect x="56" y="288" width="248" height="184" rx="12" fill="#EEEDFE" stroke="#534AB7" stroke-width="0.5"/>
