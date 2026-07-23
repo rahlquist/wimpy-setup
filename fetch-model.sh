@@ -140,6 +140,16 @@ case "$GPU_DEVICE" in
   Vulkan*) GPU_ENV_VAR="GGML_VK_VISIBLE_DEVICES";;
   *) die "could not determine GPU device. Pass -d ROCm0/CUDA0 explicitly.";;
 esac
+# Pin VALUE. Default to index 0, but on ROCm wimpy now has TWO ROCm devices —
+# the R9700 (inference) and the Ryzen 7700 Raphael iGPU (gfx1036). An index pin
+# is fragile (a reorder could select the iGPU), so pin the R9700 by its stable
+# UUID; it always remaps to ROCm0 so --device ROCm0 stays correct. Override with
+# GPU_PIN_VALUE=... if the discrete card's UUID ever changes (get it from rocminfo).
+R9700_UUID="GPU-61fe9ba05af1939a"
+case "$GPU_DEVICE" in
+  ROCm*) GPU_PIN_VALUE="${GPU_PIN_VALUE:-$R9700_UUID}";;
+  *)     GPU_PIN_VALUE="${GPU_PIN_VALUE:-0}";;
+esac
 TTL="$(grep -hoE 'ttl:[[:space:]]*[0-9]+' "${CONFIG:-/dev/null}" 2>/dev/null | grep -oE '[0-9]+' | sort | uniq -c | sort -rn | awk 'NR==1{print $2}')"
 TTL="${TTL:-300}"
 
@@ -147,7 +157,7 @@ printf '%s\n' '  ┌─ detected ───────────────�
 printf '  │ repo         : %s\n' "$REPO_ID"
 printf '  │ file         : %s\n' "$FILE"
 printf '  │ llama-server : %s\n' "$LLAMA_SERVER"
-printf '  │ gpu device   : %s  (pin: %s=0)\n' "$GPU_DEVICE" "$GPU_ENV_VAR"
+printf '  │ gpu device   : %s  (pin: %s=%s)\n' "$GPU_DEVICE" "$GPU_ENV_VAR" "$GPU_PIN_VALUE"
 printf '  │ llama-swap   : %s\n' "${CONFIG:-<not found>}"
 printf '  │ models dir   : %s\n' "$MODELS_DIR"
 printf '  │ ctx request  : %s\n' "$CTX"
@@ -228,7 +238,7 @@ trap cleanup EXIT INT TERM
 smoke_test(){
   SMOKE_LOG="$(mktemp /tmp/fetch-model.smoke.XXXXXX.log)"
   info "smoke test: ctx=$CTX device=$GPU_DEVICE cpu-moe=${CPU_MOE:-none}"
-  env "${GPU_ENV_VAR}=0" "$LLAMA_SERVER" --model "$MODEL_PATH" --n-gpu-layers 99 "${MOE_ARG[@]}" \
+  env "${GPU_ENV_VAR}=${GPU_PIN_VALUE}" "$LLAMA_SERVER" --model "$MODEL_PATH" --n-gpu-layers 99 "${MOE_ARG[@]}" \
     --device "$GPU_DEVICE" --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size "$CTX" --jinja \
     --host 127.0.0.1 --port "$SMOKE_PORT" >"$SMOKE_LOG" 2>&1 &
   SERVER_PID=$!
@@ -296,9 +306,9 @@ rollback_registration(){
 CMDFILE="$(mktemp /tmp/fetch-model.cmd.XXXXXX)"
 printf '%s\n' "${CMD_LINES[@]}" > "$CMDFILE"
 set +e
-python3 - "$CONFIG" "$NAME" "$TTL" "$CMDFILE" "$GPU_ENV_VAR" <<'PY'
+python3 - "$CONFIG" "$NAME" "$TTL" "$CMDFILE" "$GPU_ENV_VAR" "$GPU_PIN_VALUE" <<'PY'
 import os, re, sys
-cfg, name, ttl, cmdfile, gpu_env = sys.argv[1:]
+cfg, name, ttl, cmdfile, gpu_env, gpu_pin = sys.argv[1:]
 with open(cfg, encoding='utf-8') as f: text=f.read()
 lines=text.splitlines()
 mi=next((i for i,l in enumerate(lines) if re.match(r'^models:\s*(?:#.*)?$', l)), None)
@@ -318,7 +328,7 @@ for line in lines[mi+1:]:
     if m: existing.add(m.group(1))
 if name in existing: raise SystemExit('DUPLICATE')
 with open(cmdfile, encoding='utf-8') as f: command=[x.rstrip('\n') for x in f]
-block=[f'{child_indent}"{name}":', f'{field_indent}ttl: {ttl}', f'{field_indent}env: ["{gpu_env}=0"]', f'{field_indent}cmd: |'] + [cmd_indent+x for x in command]
+block=[f'{child_indent}"{name}":', f'{field_indent}ttl: {ttl}', f'{field_indent}env: ["{gpu_env}={gpu_pin}"]', f'{field_indent}cmd: |'] + [cmd_indent+x for x in command]
 new='\n'.join(lines[:mi+1]+block+lines[mi+1:])+'\n'
 if [l for l in new.splitlines() if re.match(r'^\S',l)] != [l for l in text.splitlines() if re.match(r'^\S',l)]:
     raise SystemExit('top-level structure would change')
