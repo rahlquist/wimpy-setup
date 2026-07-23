@@ -94,8 +94,8 @@ curl http://wimpy.home.lan:8080/v1/models   # verify wimpy reachable
 
 ## Models (llama.cpp + llama-swap)
 
-- `download-models.sh` — pulls the curated GGUF models into `~/.cache/llama.cpp/`.
-  Continues past failures and prints a summary. Repo/filenames verified.
+- Models are added one at a time with `fetch-model.sh` (see below), which
+  downloads the GGUF into `~/.cache/llama.cpp/` and registers it in the config.
 - `llama-swap-config.yaml` — deploy to `/etc/llama-swap/config.yaml`. Every
   model uses an explicit `--model` path to the downloaded file (one consistent
   method — no `-hf` re-downloads). All at 65536 context (Hermes minimum), with
@@ -117,7 +117,7 @@ curl http://wimpy.home.lan:8080/v1/models   # verify wimpy reachable
 
 ### Hugging Face authentication
 
-`download-models.sh` relies on the `hf` CLI being logged in. Authenticate once:
+`fetch-model.sh` relies on the `hf` CLI being logged in. Authenticate once:
 
 ```bash
 hf auth login        # paste a token from https://huggingface.co/settings/tokens
@@ -161,7 +161,7 @@ See `NETWORK-DIAGRAM.md` for the host/VM bridge layout and traffic flow
 04-vscodium.sh           07-claude-code.sh      10-create-vm-example.sh
 run-all.sh               lib/common.sh
 
-download-models.sh       llama-swap-config.yaml llama-swap.service
+fetch-model.sh           llama-swap-config.yaml llama-swap.service
 hermesvm-setup.sh        (VM post-install, --hostname parameterised)
 
 README.md                CLAUDE.md              HARDWARE.md

@@ -74,14 +74,11 @@ days / 73 releases behind upstream by the time this was noticed.
   `$PATH` is exactly what broke this project twice now).
 - `llama-swap` (model router) → /usr/local/bin, systemd service `llama-swap`,
   listens on **0.0.0.0:8080** so the VM can reach it
-- Models downloaded by `download-models.sh` into `~/.cache/llama.cpp/`
+- Models downloaded by `fetch-model.sh` into `~/.cache/llama.cpp/`
 - `llama-swap-config.yaml` → deploys to `/etc/llama-swap/config.yaml`
 
 ## Files here
 
-- `download-models.sh` — pulls the fixed, curated model list via `hf download` to
-  ~/.cache/llama.cpp/. Continues on failure, prints a failure summary. Repo/filenames
-  verified June 2026. Pure downloader — does NOT touch llama-swap-config.yaml.
 - `fetch-model.sh` — for adding a single new model from a HuggingFace paste
   (`./fetch-model.sh "hf download hf://owner/repo/file.gguf"`). Downloads, smoke-tests
   on the real GPU at full context with the same `--device`/env pin as production
@@ -146,7 +143,7 @@ days / 73 releases behind upstream by the time this was noticed.
    the 2026-07-24 dual-GPU work is what split it into the two-group scheme above
    — see CHANGELOG.md and HARDWARE.md.)
 3. **Use local --model paths, not -hf.** The config deliberately points at the
-   files download-models.sh already fetched. Do NOT convert entries to `-hf`
+   files `fetch-model.sh` already fetched. Do NOT convert entries to `-hf`
    (that triggers a second, separate download).
 4. **Context is 65536 everywhere.** Hermes Agent requires a 64K minimum. Do not
    lower a model's ctx below 65536 unless explicitly told to for an OOM fix, and
@@ -212,8 +209,9 @@ ssh rahlquist@<VM-IP> 'bash -c "ssh-keyscan -H <HOST-IP> >> ~/.ssh/known_hosts"'
 ```
 Note: VMs on this host run fish shell — always wrap remote commands in `bash -c "..."`.
 
-**Download models** (use `hf`, not `huggingface-cli` — the latter is deprecated):
-`bash download-models.sh`
+**Add models** one at a time with `fetch-model.sh` (use `hf`, not
+`huggingface-cli` — the latter is deprecated):
+`./fetch-model.sh "hf download hf://owner/repo/file.gguf"`
 
 ## Load test results (2026-06-28, all 18 models — pre-migration, RTX 5060 Ti)
 
@@ -257,7 +255,7 @@ one-at-a-time request cadence this is not an issue.
 
 ## Known model caveats
 
-- `phi-4` — config and download-models.sh use **Q4_K_M** (not Q8_0). Q8_0 confirmed
+- `phi-4` — config uses **Q4_K_M** (not Q8_0). Q8_0 confirmed
   OOM at 64K even with 15.8 GB free — weights alone consume ~15.5 GB.
 - `qwen2.5-coder-14b` — training context is 32768; llama-server silently caps
   `--ctx-size 65536` to 32768. Hermes prompts longer than 32K will be rejected.

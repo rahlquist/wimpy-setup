@@ -43,7 +43,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 #
 # ONE consistent method: every model uses --model with an explicit path to the
-# file that download-models.sh saved into $MODELS. This matches the slug setup
+# file that fetch-model.sh saved into $MODELS. This matches the slug setup
 # and avoids any double-download. If your cache dir differs, edit MODELS-equiv
 # paths below (they assume the default ~/.cache/llama.cpp for user rahlquist).
 #
