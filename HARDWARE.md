@@ -2,21 +2,28 @@
 
 | Component | Detail |
 |-----------|--------|
-| Board     | ASUS TUF GAMING B550M-PLUS |
-| CPU       | AMD Ryzen 9 3900X — 12 cores / 24 threads |
-| RAM       | 64 GiB DDR4-3200 (4 × 16 GiB) |
-| GPU 0     | AMD Radeon AI PRO R9700 (Navi 48, gfx1201, 32 GB VRAM) — inference, PCI `09:00.0` |
-| GPU 1     | NVIDIA GeForce GT 710 (GK208B) — display head only, PCI `04:00.0` |
+| Board     | ASRock X870 Taichi Creator (AM5) |
+| CPU       | AMD Ryzen 7 7700 — 8 cores / 8 threads (SMT currently disabled; part is 8c/16t capable) |
+| RAM       | 32 GiB DDR5-4800 (2 × 16 GiB; 2 slots free) |
+| GPU 0     | AMD Radeon AI PRO R9700 (Navi 48, gfx1201, 32 GB VRAM) — ROCm inference, PCI `03:00.0` |
+| GPU 1     | NVIDIA GeForce RTX 5060 Ti (GB206, Blackwell, 16 GB VRAM, `sm_120`) — reinstalled, PCI `04:00.0` |
+| iGPU      | AMD Raphael integrated graphics, PCI `73:00.0` (from the 7700 — available as a display head) |
 | Storage   | WD_BLACK SN770 2 TB NVMe (`/dev/nvme0n1`) |
-| NIC       | Realtek RTL8125 2.5 GbE (`enp6s0`) |
+| NIC       | Aquantia AQC113 10 GbE (`enp10s0`, PCI `0a:00.0`) — bridge uplink for `br0`; also onboard Realtek RTL8126 5 GbE (`enp9s0`, PCI `09:00.0`, unused) |
 
-**RTX 5060 Ti (GB206, 16 GB VRAM, `sm_120`) is temporarily removed** (as of
-2026-07-07) pending re-install "very soon." It previously occupied the primary
-inference role above; when it returns, decide whether it replaces the R9700 or
-runs alongside it (dual-GPU pinning would need to change from a single
-`HIP_VISIBLE_DEVICES=0`/`--device ROCm0` pin to something that accounts for
-both a ROCm and a CUDA device). NVIDIA driver/CUDA toolkit packages remain
-installed and untouched specifically so this slots back in cleanly.
+**Platform swap (2026-07-23):** the previous AM4 box (ASUS B550M / Ryzen 9
+3900X / 64 GiB DDR4 / GT 710 display) was replaced with the ASRock X870 /
+Ryzen 7 7700 / 32 GiB DDR5 build above. Consequences to be aware of:
+- **RAM halved (64 → 32 GiB)** and **cores down (12c/24t → 8c/8t).** MoE expert
+  offload to system RAM (`--n-cpu-moe`) has far less headroom now — re-tune and
+  re-check `rocm-smi`/free RAM before trusting the old per-model notes.
+- **The GT 710 is gone**; the Raphael iGPU (or the 5060 Ti) now drives display.
+  The GT 710 nouveau notes below are historical — kept for reference only.
+- **Both inference GPUs are now installed at once** (R9700 ROCm + 5060 Ti CUDA).
+  This is the dual-GPU case CLAUDE.md Hard Rule #2 flagged: the single
+  `HIP_VISIBLE_DEVICES=0`/`--device ROCm0` pin must be revisited so the two
+  devices don't collide. **Decision still pending — do not assume the old pin
+  is correct.** NVIDIA driver/CUDA toolkit packages remain installed.
 
 ## Partition layout
 | Device         | Size    | Role           |
@@ -41,7 +48,10 @@ installed and untouched specifically so this slots back in cleanly.
   makes missing-GPU a hard startup failure instead of a silent CPU fallback).
 - Verify device name/index: `/usr/local/bin/llama-server --list-devices`
 
-## GT 710 display driver status
+## GT 710 display driver status (HISTORICAL — GT 710 removed in the 2026-07-23 platform swap)
+> The GT 710 is no longer in the machine; display is now handled by the Raphael
+> iGPU (or the RTX 5060 Ti). The notes below are retained only as a record of
+> the nouveau troubleshooting done while it was installed.
 - GT 710 = Kepler, `sm_35` — too old for llama.cpp inference regardless of
   which primary GPU is installed; always excluded from inference.
 - **As of 2026-07-07, GT 710 runs on `nouveau`**, confirmed bound at actual
@@ -71,10 +81,11 @@ installed and untouched specifically so this slots back in cleanly.
   video decode isn't available via nouveau. Doesn't affect display output;
   GT 710's only job here is driving the monitor, not decoding video.
 - Also unrelated, seen repeating in kernel logs, not a regression: `amdgpu
-  0000:09:00.0: [drm] Cannot find any crtc or sizes` — the R9700 is a
-  compute-oriented card with no display output for KMS to enumerate; expected.
+  ...: [drm] Cannot find any crtc or sizes` — the R9700 is a compute-oriented
+  card with no display output for KMS to enumerate; expected. (PCI address is
+  now `03:00.0` on the X870 board, was `09:00.0` on the old B550.)
 
-## CUDA notes (historical / for when the RTX 5060 Ti returns)
+## CUDA notes (RTX 5060 Ti — reinstalled 2026-07-23, PCI `04:00.0`)
 - RTX 5060 Ti = Blackwell, `sm_120`
 - Build flag: `-DCMAKE_CUDA_ARCHITECTURES=120`
 - Verify GPU indices before setting `CUDA_VISIBLE_DEVICES`:
