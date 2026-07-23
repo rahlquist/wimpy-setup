@@ -323,7 +323,7 @@ models:
     cmd: >
       /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q4_K_M.gguf
-        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 8 --device ROCm0
+        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
         --host 0.0.0.0 --port ${PORT} --jinja --metrics
 
@@ -333,7 +333,7 @@ models:
     cmd: >
       /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q5_K_M.gguf
-        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 8 --device ROCm0
+        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
         --host 0.0.0.0 --port ${PORT} --jinja --metrics
 
@@ -343,19 +343,20 @@ models:
     cmd: >
       /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q6_K.gguf
-        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 8 --device ROCm0
+        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
         --host 0.0.0.0 --port ${PORT} --jinja --metrics
 
   qwen3-30b-a3b:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
-    # 30B MoE, 3B active. Start with high --n-cpu-moe; lower toward ~20 as VRAM
-    # allows. Raised batch sizes help CPU+GPU MoE throughput.
+    # 30B MoE, 3B active. Re-tuned 2026-07-24 for the 32GB R9700: n-cpu-moe=0
+    # (all experts on GPU) fits at 20.9/32 GB, ~85 tok/s — faster than the old
+    # 5060-Ti-era offload AND uses less host RAM. Was 36 (16GB-VRAM holdover).
     cmd: >
       /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/Qwen3-30B-A3B-Q4_K_M.gguf
-        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 36 --device ROCm0
+        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0
         --batch-size 2048 --ubatch-size 512
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
         --host 0.0.0.0 --port ${PORT} --jinja --metrics
@@ -363,11 +364,12 @@ models:
   gemma-4-26b-moe:
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
-    # 26B-A4B MoE (the one from the video). Tune --n-cpu-moe down for speed.
+    # 26B-A4B MoE. Re-tuned 2026-07-24 for the 32GB R9700: n-cpu-moe=0 (all
+    # experts on GPU) fits at 18.6/32 GB, ~77 tok/s. Was 30 (16GB-VRAM holdover).
     cmd: >
       /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/google_gemma-4-26B-A4B-it-Q4_K_M.gguf
-        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 30 --device ROCm0
+        --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0
         --batch-size 2048 --ubatch-size 512
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
         --host 0.0.0.0 --port ${PORT} --jinja --metrics
