@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # 08-networking.sh — configure wimpy as a VM host with bridged networking
 #
-# Creates br0 bridged to enp10s0 in DHCP mode.
+# Creates br0 bridged to lan0 in DHCP mode.
+# lan0 is the permanent, MAC-pinned name for the LAN uplink (10-lan.link) —
+# kernel names like enp10s0/enp8s0 drift whenever PCI enumeration changes
+# (motherboard swap, GPU reinstall), and each drift used to break the bridge.
 # Your dnsmasq DHCP reservation (MAC → 192.168.8.248) assigns the IP.
 # VMs plug into br0 and get their own DHCP-reserved IPs.
 #
@@ -13,11 +16,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 detect_os
 
-step "08 — Host bridge networking (br0 on enp10s0, DHCP)"
+step "08 — Host bridge networking (br0 on lan0, DHCP)"
 require_root_or_sudo
 
-HOST_NIC="enp10s0"
+HOST_NIC="lan0"
 BRIDGE="br0"
+
+# ── Permanent NIC name ────────────────────────────────────────────────────────
+# The bridge is built on lan0, never on a kernel-assigned enpXs0 name.
+if [[ ! -e "/sys/class/net/${HOST_NIC}" ]]; then
+    if [[ ! -f /etc/systemd/network/10-lan.link ]]; then
+        sudo install -m 644 "${SCRIPT_DIR}/10-lan.link" /etc/systemd/network/10-lan.link
+        log "Installed 10-lan.link (names the NIC ${HOST_NIC}, keyed on its MAC)"
+    fi
+    err "${HOST_NIC} does not exist yet — the rename applies at boot."
+    err "Check the MAC in 10-lan.link against 'ip -br link', reboot, then re-run 08-networking.sh."
+    exit 1
+fi
 
 # Prefer NetworkManager if it's running (CachyOS/KDE default).
 # Both can be active at once; NetworkManager wins for bridge management.
@@ -145,7 +160,7 @@ echo "  br0 is up in DHCP mode — waiting for dnsmasq reservation to assign IP"
 echo "  Once the reservation is active: ip addr show br0"
 echo ""
 echo "  Wimpy MAC address for your dnsmasq reservation:"
-ip link show "$HOST_NIC" | grep 'link/ether' | awk '{print "    enp10s0 MAC: " $2}'
+ip link show "$HOST_NIC" | grep 'link/ether' | awk -v n="$HOST_NIC" '{print "    " n " MAC: " $2}'
 echo "  → reserve this MAC → 192.168.8.248 in OPNsense DHCP"
 echo ""
 echo "  Next: run 09-kvm.sh"

@@ -1,0 +1,19 @@
+# 10-lan.link — permanent name for wimpy's LAN uplink (Aquantia AQC113 10GbE).
+#
+# Keyed on MAC, not PCI path, so hardware changes that shift PCI enumeration
+# can never rename the NIC again (motherboard swap made it enp10s0; the
+# 2026-07 GPU reinstall made it enp8s0 and silently broke br0 — this file
+# ends that class of breakage).
+#
+# Deploy:  sudo cp 10-lan.link /etc/systemd/network/
+# Takes effect on reboot (or run ./migrate-to-lan0.sh for the guided path).
+#
+# If the NIC itself is ever replaced: update MACAddress here AND the OPNsense
+# DHCP reservation (MAC -> 192.168.8.248). Everything else stays lan0.
+
+[Match]
+MACAddress=9c:6b:00:df:53:17
+Type=ether
+
+[Link]
+Name=lan0

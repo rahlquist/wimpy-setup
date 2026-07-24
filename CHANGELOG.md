@@ -1,5 +1,42 @@
 # Changelog — wimpy-setup
 
+## Network: permanent NIC name lan0, ending the enpXs0-rename breakage (2026-07-23)
+
+**Incident:** the RTX 5060 Ti reinstall (dual-GPU work below) shifted PCI
+enumeration and renamed the LAN NIC enp10s0 → enp8s0 (same Aquantia AQC113,
+moved 0a:00.0 → 08:00.0). `br0-slave` was bound to the old name, so br0 came
+up with zero member ports (NO-CARRIER, no IP), NetworkManager fell back to a
+standalone profile on enp8s0 with a pool lease (.9 instead of .248), and
+hermesvm01's tap was attached to nothing — VM offline. Identical failure mode
+to the motherboard swap that `fix-br0.sh` was written for: kernel "predictable"
+names are predictable from the PCI path, which is exactly what hardware swaps
+change.
+
+**Fix (root cause, not another rename chase):** pin the NIC name to the MAC
+instead of the PCI path.
+
+- `10-lan.link` (new): systemd .link file matching the AQC113's MAC, naming it
+  **lan0** permanently. Deploys to `/etc/systemd/network/`. If the NIC itself
+  is ever replaced, the MAC is updated in this one file (plus the OPNsense
+  reservation) — nothing else references hardware.
+- `migrate-to-lan0.sh` (new): guided one-time migration — installs the .link
+  file, re-points `br0-slave` at lan0, removes standalone profiles that would
+  race the bridge, offers the reboot that applies the rename. Idempotent;
+  run from the local console. Prereq: bridge working on the current name
+  (`fix-br0.sh` first if it's down).
+- `08-networking.sh`: builds the bridge on lan0; installs `10-lan.link` and
+  stops (reboot, re-run) if lan0 doesn't exist yet. Never touches enpXs0
+  names.
+- `fix-br0.sh`: NIC updated enp10s0→enp8s0 for the immediate recovery; marked
+  superseded once the lan0 migration is applied (kept for pre-migration
+  recovery).
+- Docs (`CLAUDE.md`, `README.md`, `HARDWARE.md`, `NETWORK-DIAGRAM.md`,
+  `DNS-DHCP-INSTRUCTIONS.md`, `run-all.sh`): enp10s0 references → lan0.
+
+**Apply order (from local console):** `./fix-br0.sh` (restore bridge on
+enp8s0, reboot hermesvm01) → verify VM reachable → `./migrate-to-lan0.sh` →
+reboot → verify `bridge link` shows lan0 in br0 and br0 has .248.
+
 ## Dual-GPU: add the RTX 5060 Ti (CUDA) alongside the R9700 (ROCm) (2026-07-24)
 
 After the 2026-07-23 AM4→AM5 platform swap (ASRock X870 / Ryzen 7 7700 /

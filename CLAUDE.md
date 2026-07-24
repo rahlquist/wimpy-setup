@@ -13,7 +13,9 @@ As of the 2026-07-23 AM4→AM5 platform swap:
 - iGPU: Ryzen 7700 Raphael (gfx1036) — enumerates as a ROCm device, so the
   R9700 is pinned by UUID to avoid selecting it. (The old GT 710 was removed.)
 - OS: CachyOS (Arch-based), bash shell, KDE
-- Network: bridge `br0` on `enp10s0`, static-via-DHCP at **192.168.8.248**,
+- Network: bridge `br0` on `lan0` (permanent MAC-pinned NIC name via
+  `10-lan.link` — kernel names drifted enp10s0→enp8s0 across PCI changes and
+  broke the bridge twice), static-via-DHCP at **192.168.8.248**,
   hostname **wimpy.home.lan** (DNS/DHCP on OPNsense: Unbound + dnsmasq)
 
 A KVM guest **hermesvm01** (192.168.8.249) runs Hermes Agent and reaches this

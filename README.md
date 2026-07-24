@@ -14,7 +14,7 @@ and VM host, running both GPUs concurrently. See `HARDWARE.md` for full specs.
 | 05 | `05-llama-cpp.sh` | llama.cpp (ROCm/HIP gfx1201, R9700) → `/usr/local` + llama-swap on 0.0.0.0:8080 |
 | 06 | `06-llama-cpp-cuda.sh` | Second llama.cpp (CUDA sm_120, RTX 5060 Ti) → isolated `/opt/llama-cuda` |
 | 07 | `07-claude-code.sh` | Claude Code |
-| 08 | `08-networking.sh` | br0 bridge on enp10s0 (DHCP), firewall open 8080 |
+| 08 | `08-networking.sh` | br0 bridge on lan0 (MAC-pinned NIC name, DHCP), firewall open 8080 |
 | 09 | `09-kvm.sh` | KVM / QEMU / libvirt / virt-manager, registers br0 as host-bridge |
 
 Step 03 (postgres) is not on the host — it's manual. Hermes is not a host step

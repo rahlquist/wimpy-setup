@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
-# fix-br0.sh — surgical fix for wimpy's br0 after the motherboard swap.
+# fix-br0.sh — surgical fix for wimpy's br0 after a hardware change renames
+# the NIC (motherboard swap: ->enp10s0; GPU reinstall 2026-07: ->enp8s0).
+# Update NIC= below to match `ip -br link` before running.
+#
+# SUPERSEDED once migrate-to-lan0.sh has been applied: the NIC then has the
+# permanent MAC-pinned name lan0 (10-lan.link) and PCI renames can no longer
+# detach it from br0. Kept for recovery if the bridge breaks BEFORE migrating.
 #
 # Does NOT tear down your network. It only:
-#   1. removes the standalone connection that is holding the IP on enp10s0
+#   1. removes the standalone connection that is holding the IP on the NIC
 #      (that IP belongs on br0, per the 08-networking.sh design)
-#   2. re-points br0's slave to the live NIC (enp10s0); br0 itself is kept
-#   3. pins br0's MAC to enp10s0 so the OPNsense reservation -> 192.168.8.248 matches
+#   2. re-points br0's slave to the live NIC; br0 itself is kept
+#   3. pins br0's MAC to the NIC so the OPNsense reservation -> 192.168.8.248 matches
 #   4. brings br0 up so wimpy AND hermesvm01 reach the LAN through it
 #
 # Idempotent and safe to re-run. Run it in a real terminal (needs sudo password).
 set -euo pipefail
 
-NIC="enp10s0"
+NIC="enp8s0"
 BRIDGE="br0"
 
 [[ -e "/sys/class/net/${NIC}" ]] || { echo "NIC ${NIC} missing — check 'ip -br link'"; exit 1; }

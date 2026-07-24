@@ -9,7 +9,7 @@
 | GPU 1     | NVIDIA GeForce RTX 5060 Ti (GB206, Blackwell, 16 GB VRAM, `sm_120`) — reinstalled, PCI `04:00.0` |
 | iGPU      | AMD Raphael integrated graphics, PCI `73:00.0` (from the 7700 — available as a display head) |
 | Storage   | WD_BLACK SN770 2 TB NVMe (`/dev/nvme0n1`) |
-| NIC       | Aquantia AQC113 10 GbE (`enp10s0`, PCI `0a:00.0`) — bridge uplink for `br0`; also onboard Realtek RTL8126 5 GbE (`enp9s0`, PCI `09:00.0`, unused) |
+| NIC       | Aquantia AQC113 10 GbE (`lan0` — permanent MAC-pinned name via `10-lan.link`; kernel name drifted enp10s0→enp8s0 when PCI enumeration shifted, currently PCI `08:00.0`) — bridge uplink for `br0`; also onboard Realtek RTL8126 5 GbE (unused, kernel-named) |
 
 **Platform swap (2026-07-23):** the previous AM4 box (ASUS B550M / Ryzen 9
 3900X / 64 GiB DDR4 / GT 710 display) was replaced with the ASRock X870 /
