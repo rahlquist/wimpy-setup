@@ -326,7 +326,7 @@ for line in lines[mi+1:]:
     if not line.startswith((' ', '\t')): break
     m=re.match(r'^'+re.escape(child_indent)+r'["\']?([^"\':]+)["\']?\s*:',line)
     if m: existing.add(m.group(1))
-if name in existing: raise SystemExit('DUPLICATE')
+if name in existing: raise SystemExit(3)
 with open(cmdfile, encoding='utf-8') as f: command=[x.rstrip('\n') for x in f]
 block=[f'{child_indent}"{name}":', f'{field_indent}ttl: {ttl}', f'{field_indent}env: ["{gpu_env}={gpu_pin}"]', f'{field_indent}cmd: |'] + [cmd_indent+x for x in command]
 new='\n'.join(lines[:mi+1]+block+lines[mi+1:])+'\n'
