@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Fake llama-server for test harness. Two modes:
+
+1. --list-devices: print ROCm0, exit 0 quickly.
+2. --port N: bind 127.0.0.1:N, serve GET /health → 200, POST /completion → {"content":"OK"}.
+   Respect LLAMA_SERVER_HEALTH_FAIL=1 for forced-failure tests.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
+
+# ── list-devices mode ──
+if "--list-devices" in sys.argv:
+    print("  ROCm0  available  (R9700)")
+    sys.exit(0)
+
+# ── server mode: extract port from args ──
+PORT = 18080
+_it = iter(sys.argv[1:])
+for _a in _it:
+    if _a == "--port":
+        PORT = int(next(_it))
+        break
+    if _a.startswith("--port="):
+        PORT = int(_a.split("=", 1)[1])
+        break
+
+FAIL_HEALTH = os.environ.get("LLAMA_SERVER_HEALTH_FAIL", "0") == "1"
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(503 if FAIL_HEALTH else 200)
+        self.end_headers()
+        self.wfile.write(b'{"status":"ok"}')
+
+    def do_POST(self):
+        if self.path == "/completion":
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps({"content": "OK."}).encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, fmt, *args):
+        pass
+
+
+class ThreadedServer(ThreadingMixIn, HTTPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+def main():
+    server = ThreadedServer(("127.0.0.1", PORT), Handler)
+    print(f"[stub-llama-server] listening on 127.0.0.1:{PORT}", file=sys.stderr)
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
