@@ -264,13 +264,48 @@ if (( ! ASSUME_YES )); then
   [[ "${reply:-Y}" =~ ^[Yy]?$ ]] || { info 'aborted.'; exit 0; }
 fi
 
+acquire_model(){
+  mkdir -p "$MODELS_DIR" || die "cannot create models directory: $MODELS_DIR"
+  MODEL_PATH="$MODELS_DIR/$FILE"
+  if [[ -f "$MODEL_PATH" ]]; then
+    ok "already acquired: $MODEL_PATH (skipping)"
+    return 0
+  fi
+  local workdir candidate attempt
+  workdir="$(mktemp -d "$MODELS_DIR/.fetch.XXXXXX")" || die "cannot create acquire temp dir"
+  case "$SRC_CLASS" in
+    hf)
+      for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
+        if hf download "$REPO_ID" "$FILE" --local-dir "$workdir" &&
+           [[ -f "$workdir/$FILE" ]]; then
+          candidate="$workdir/$FILE"; break; fi
+        rm -f -- "$workdir/$FILE"
+        if (( attempt < MAX_RETRIES )); then sleep "$attempt"; fi
+      done ;;
+    url)
+      candidate="$workdir/$FILE"
+      for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
+        if curl -fL --retry 2 --retry-delay 1 --output "$candidate" "$URL" &&
+           [[ -s "$candidate" ]]; then
+          break; fi
+        rm -f -- "$candidate"
+        if (( attempt < MAX_RETRIES )); then sleep "$attempt"; fi
+      done ;;
+    local)
+      candidate="$workdir/$FILE"
+      if ! cp -- "$LOCAL_SRC" "$candidate"; then
+        rm -rf -- "$workdir"
+        die "cannot copy local source: $LOCAL_SRC"
+      fi ;;
+  esac
+  [[ -n "${candidate:-}" && -f "$candidate" ]] || { rm -rf -- "$workdir"; die "acquisition failed for $SPEC"; }
+  mv -- "$candidate" "$MODEL_PATH" || { rm -rf -- "$workdir"; die "cannot install acquired model: $MODEL_PATH"; }
+  rm -rf -- "$workdir"
+  [[ -f "$MODEL_PATH" ]] || die "acquire completed but model file not found: $MODEL_PATH"
+  ok "acquired: $MODEL_PATH ($(du -h "$MODEL_PATH" | cut -f1))"
+}
 set_stage "acquire"
-mkdir -p "$MODELS_DIR"
-MODEL_PATH="$MODELS_DIR/$FILE"
-info "downloading $REPO_ID/$FILE -> $MODEL_PATH"
-hf download "$REPO_ID" "$FILE" --local-dir "$MODELS_DIR"
-[[ -f "$MODEL_PATH" ]] || die "download completed but exact model file was not found: $MODEL_PATH"
-ok "downloaded: $MODEL_PATH ($(du -h "$MODEL_PATH" | cut -f1))"
+acquire_model
 
 METADATA_JSON="$(python3 "$GGUF_INSPECTOR" "$MODEL_PATH")" || die "could not inspect downloaded GGUF metadata"
 read -r ARCH NATIVE_CTX BLOCKS EXPERTS EXPERTS_USED <<EOF_META
