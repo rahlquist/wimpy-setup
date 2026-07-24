@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
-# fetch-model.sh — download one explicit Hugging Face GGUF, inspect its local
-# metadata, smoke-test it on the configured GPU, register it in llama-swap, and
-# update the repository model inventory.
+# fetch-model.sh — download a GGUF model file from Hugging Face, HTTP(S), or
+# a local path, inspect its metadata, smoke-test on the configured GPU,
+# register in llama-swap, and update the repository model inventory.
 #
 # Usage:
 #   ./fetch-model.sh [options] "hf download hf://owner/repo/file.gguf [N]"
-#   ./fetch-model.sh [options] "hf://owner/repo/file.gguf" [N]
+#   ./fetch-model.sh [options] "https://example.com/path/to/model.gguf [N]"
+#   ./fetch-model.sh [options] /abs/or/rel/path/to/model.gguf
 #
-# The optional trailing N is --n-cpu-moe N. It is accepted only for models whose
-# downloaded GGUF metadata proves they are MoE models. The script never evals a
-# pasted command and never guesses a CPU-MoE layer count.
+# The optional trailing N is --n-cpu-moe N. It is accepted only for models
+# whose downloaded GGUF metadata proves they are MoE models. The script never
+# evals a pasted command and never guesses a CPU-MoE layer count.
 #
 # Defaults are deliberate:
 #   * all registered models remain at 65536 context (the Hermes minimum), even
 #     when a model's native GGUF context is higher;
 #   * all entries use a downloaded local --model path; never llama.cpp -hf;
-#   * CPU-MoE offload is absent unless the user explicitly supplies N.
+#   * CPU-MoE offload is absent unless the user explicitly supplies N;
+#   * local source files are removed after a successful pipeline; pass
+#     --keep-source to retain the original.
 set -euo pipefail
 
 err(){ printf '\033[31m[ERR]\033[0m  %s\n' "$*" >&2; }
@@ -95,6 +98,7 @@ METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
 
 NAME=""; CTX="65536"; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1
 SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""; AUTO_PUSH=1
+KEEP_SOURCE=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -n) NAME="${2:-}"; shift 2;;
@@ -104,9 +108,10 @@ while [[ $# -gt 0 ]]; do
     --no-push) AUTO_PUSH=0; shift;;
     -y) ASSUME_YES=1; shift;;
     --no-smoke) DO_SMOKE=0; shift;;
+    --keep-source) KEEP_SOURCE=1; shift;;
     --no-register) DO_REGISTER=0; shift;;
     -h|--help)
-      sed -n '2,22p' "$0"
+      sed -n '2,21p' "$0"
       exit 0;;
     -*) die "unknown option: $1";;
     *)
@@ -132,15 +137,36 @@ if [[ "$SPEC" =~ ^(.*\.gguf)[[:space:]]+([0-9]+)$ ]]; then
 fi
 [[ "$CTX" =~ ^[0-9]+$ ]] && (( CTX >= 65536 )) || die "--ctx-size must be an integer >= 65536"
 [[ -z "$CPU_MOE" || "$CPU_MOE" =~ ^[0-9]+$ ]] || die "--n-cpu-moe must be a non-negative integer"
-command -v hf >/dev/null || die "'hf' not found. Install Hugging Face Hub CLI first."
 command -v python3 >/dev/null || die "python3 is required"
 [[ -f "$GGUF_INSPECTOR" ]] || die "GGUF inspector missing: $GGUF_INSPECTOR"
 : "${SMOKE_PORT:=18080}"
+: "${SMOKE_TRIES:=180}"
 : "${MODELS_DIR:=$HOME/.cache/llama.cpp}"
+: "${MAX_RETRIES:=3}"
 
-# Never evaluate pasted text. Accept the explicitly documented, one-file forms.
-parse_spec(){
+classify_input() {
   local value="$1"
+  # LOCAL FILE
+  if [[ -f "$value" ]]; then
+    SRC_CLASS="local"
+    LOCAL_SRC="$(cd "$(dirname "$value")" && pwd)/$(basename "$value")"
+    FILE="$(basename "$value")"
+    OWNER="local"; REPO="local"
+    [[ "$FILE" == *.gguf ]] || return 1
+    return 0
+  fi
+  # URL: http(s)://
+  if [[ "$value" =~ ^https?:// ]]; then
+    SRC_CLASS="url"
+    URL="$value"
+    local base="${value%%\?*}"; base="${base%%#*}"
+    FILE="${base##*/}"
+    [[ "$FILE" == *.gguf ]] || return 1
+    OWNER="url"; REPO="$(printf '%s' "$URL" | sed -E 's#https?://##; s#/.*$##; s/\./-/g')"
+    return 0
+  fi
+  # HF: hf://  |  hf download hf://  |  https://huggingface.co/
+  SRC_CLASS="hf"
   value="${value#hf download }"
   value="${value#hf://}"
   value="${value#https://huggingface.co/}"
@@ -150,14 +176,20 @@ parse_spec(){
   value="${value#*/resolve/main/}"
   value="${value#*/blob/main/}"
   [[ "$value" =~ ^([^/[:space:]]+)/([^/[:space:]]+)/(.+\.gguf)$ ]] || return 1
-  OWNER="${BASH_REMATCH[1]}"
-  REPO="${BASH_REMATCH[2]}"
-  FILE="${BASH_REMATCH[3]}"
-  [[ "$FILE" != /* && "$FILE" != *".."* && "$FILE" != *$'\n'* ]] || return 1
-  REPO_ID="$OWNER/$REPO"
+  OWNER="${BASH_REMATCH[1]}"; REPO="${BASH_REMATCH[2]}"; FILE="${BASH_REMATCH[3]}"
+  [[ "$FILE" != /* && "$FILE" != *".."* ]] || return 1
+  return 0
 }
-parse_spec "$SPEC" || die "unsupported HF spec. Expected hf://owner/repo/file.gguf (optionally prefixed with 'hf download ')."
+# Dep checks: hf only for hf class, curl only for url class
+set_stage "classify"
+classify_input "$SPEC" || die "unsupported spec: $SPEC (expected hf://..., http(s)://....gguf, or local .gguf path)"
 [[ "$FILE" == *.gguf && "$FILE" != *[[:space:]]* ]] || die "model filename must be one .gguf file"
+case "$SRC_CLASS" in
+  hf) command -v hf >/dev/null || die "'hf' not found. Install Hugging Face Hub CLI first.";;
+  url) command -v curl >/dev/null || die "'curl' not found. Install curl first.";;
+  local) [[ -r "$LOCAL_SRC" ]] || die "local source not readable: $LOCAL_SRC";;
+esac
+REPO_ID="${OWNER}/${REPO}"
 
 # The example may be supplied as an unquoted command with a separate final N.
 # The main parser has already put that N in CPU_MOE.
@@ -217,6 +249,7 @@ TTL="$(grep -hoE 'ttl:[[:space:]]*[0-9]+' "${CONFIG:-/dev/null}" 2>/dev/null | g
 TTL="${TTL:-300}"
 
 printf '%s\n' '  ┌─ detected ─────────────────────────────────────────────'
+printf '  │ source       : %s\n' "${SRC_CLASS:-?}"
 printf '  │ repo         : %s\n' "$REPO_ID"
 printf '  │ file         : %s\n' "$FILE"
 printf '  │ llama-server : %s\n' "$LLAMA_SERVER"
