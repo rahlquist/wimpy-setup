@@ -29,6 +29,7 @@ make_td() {
 run_fetch() {
   local td="$1"; shift
   env \
+    DOSSIER_DIR="$td" \
     HF_STUB_FIXTURE="${HF_STUB_FIXTURE:-tiny}" \
     LLAMA_SERVER="$STUBS/llama-server" \
     LLAMA_SWAP_CONFIG="$td/llama-swap-config.yaml" \

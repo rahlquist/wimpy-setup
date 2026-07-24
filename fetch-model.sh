@@ -22,7 +22,70 @@ err(){ printf '\033[31m[ERR]\033[0m  %s\n' "$*" >&2; }
 ok(){  printf '\033[32m[OK]\033[0m   %s\n' "$*"; }
 info(){ printf '\033[36m[..]\033[0m   %s\n' "$*"; }
 warn(){ printf '\033[33m[!!]\033[0m   %s\n' "$*" >&2; }
-die(){ err "$*"; exit 1; }
+die(){
+  if [[ -n "$STAGE" ]]; then
+    fail "$*" 1
+  else
+    err "$*"; exit 1
+  fi
+}
+STAGE=""
+STUCK_REASON=""; LAST_RC=""; ROLLED_BACK=""
+DOSSIER_DIR="${DOSSIER_DIR:-$PWD}"
+set_stage(){ STAGE="$1"; }
+fail(){
+  local msg="$1" rc="${2:-1}"
+  err "[$STAGE] $msg"
+  STUCK_REASON="$msg"; LAST_RC="$rc"
+  recover_dossier
+  exit "$rc"
+}
+recover_dossier(){
+  local ts; ts="$(date +%Y%m%d%H%M%S)"
+  local name="${NAME:-${FILE:-unknown}}"; name="${name%.gguf}"; name="${name:-unknown}"
+  local dossier="${DOSSIER_DIR}/fetch-model-${name}-${ts}.dossier.md"
+  {
+    echo "# fetch-model.sh recovery dossier — $ts"
+    echo
+    echo "## What it was doing"
+    echo "STAGE: ${STAGE:-unknown}"
+    echo "SRC_CLASS: ${SRC_CLASS:-?}   SPEC: ${SPEC:-?}"
+    echo
+    echo "## Stuck at"
+    echo "$STUCK_REASON"
+    echo
+    echo "## Environment"
+    echo "- llama-server : ${LLAMA_SERVER:-?}"
+    echo "- gpu device   : ${GPU_DEVICE:-?} (pin ${GPU_ENV_VAR:-?}=${GPU_PIN_VALUE:-?})"
+    echo "- models dir   : ${MODELS_DIR:-?}"
+    echo "- model path   : ${MODEL_PATH:-<not acquired>}"
+    echo "- config       : ${CONFIG:-<none>}"
+    echo "- config backup: ${CONFIG_BACKUP:-<none / already cleaned>}"
+    echo "- local src    : ${LOCAL_SRC:-<n/a>}"
+    echo
+    echo "## Partial state / what already succeeded"
+    echo "- acquired model file present: $([[ -f "${MODEL_PATH:-}" ]] && echo yes || echo no)"
+    echo "- config rolled back: ${ROLLED_BACK:+yes}${ROLLED_BACK:-no}"
+    echo
+    echo "## Resume command"
+    local resume="cd \"$(pwd)\" && ./fetch-model.sh"
+    local rspec; rspec="$(printf '%q' "${SPEC:-}")"; resume+=" ${rspec}"
+    [[ -n "${CPU_MOE:-}" ]] && resume+=" --n-cpu-moe $CPU_MOE"
+    (( ASSUME_YES )) && resume+=" -y"
+    (( DO_SMOKE )) || resume+=" --no-smoke"
+    echo "  $resume"
+    echo
+    echo "## Prompt to paste to Hermes"
+    echo '```'
+    echo "fetch-model.sh got stuck at stage '${STAGE:-?}' while handling '${SPEC:-?}'."
+    echo "Reason: $STUCK_REASON"
+    echo "Model file present: $([[ -f "${MODEL_PATH:-}" ]] && echo yes || echo no). Config rolled back: ${ROLLED_BACK:+yes}${ROLLED_BACK:-no}."
+    echo "Config backup (if any): ${CONFIG_BACKUP:-none}. Help me recover — likely need to (re)run from the resume command above or fix the root cause, then re-run."
+    echo '```'
+  } > "$dossier" 2>&1
+  err "Wrote recovery dossier: $dossier"
+  err "Paste the fenced block at the bottom to Hermes to recover."
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GGUF_INSPECTOR="${GGUF_INSPECTOR:-$SCRIPT_DIR/tools/gguf_metadata.py}"
@@ -168,6 +231,7 @@ if (( ! ASSUME_YES )); then
   [[ "${reply:-Y}" =~ ^[Yy]?$ ]] || { info 'aborted.'; exit 0; }
 fi
 
+set_stage "acquire"
 mkdir -p "$MODELS_DIR"
 MODEL_PATH="$MODELS_DIR/$FILE"
 info "downloading $REPO_ID/$FILE -> $MODEL_PATH"
@@ -297,8 +361,9 @@ CONFIG_BACKUP="$(mktemp "${CONFIG}.fetch-model.XXXXXX")" || { rm -f -- "$SIDECAR
 CONFIG_SNAPSHOT="$(mktemp "${CONFIG}.fetch-model.snapshot.XXXXXX")" || { rm -f -- "$SIDECAR_TMP" "$INVENTORY_TMP" "$CONFIG_BACKUP"; die "cannot create config snapshot"; }
 cp -- "$CONFIG" "$CONFIG_BACKUP" || { rm -f -- "$SIDECAR_TMP" "$INVENTORY_TMP" "$CONFIG_BACKUP" "$CONFIG_SNAPSHOT"; die "cannot back up config"; }
 rollback_registration(){
-  cp -- "$CONFIG_BACKUP" "$CONFIG"
-  rm -f -- "$SIDECAR" "$SIDECAR_TMP" "$INVENTORY_TMP"
+  ROLLED_BACK=1
+  [[ -n "${CONFIG_BACKUP:-}" && -f "$CONFIG_BACKUP" ]] && cp -- "$CONFIG_BACKUP" "$CONFIG" || true
+  rm -f -- "${SIDECAR:-}" "${SIDECAR_TMP:-}" "${INVENTORY_TMP:-}"
 }
 
 # Insert using a constrained textual transformation. It preserves comments and
