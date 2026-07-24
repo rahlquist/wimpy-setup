@@ -375,7 +375,7 @@ smoke_test(){
     --host 127.0.0.1 --port "$SMOKE_PORT" >"$SMOKE_LOG" 2>&1 &
   SERVER_PID=$!
   local i code ready=0
-  for ((i=0; i<180; i++)); do
+  for ((i=0; i<SMOKE_TRIES; i++)); do
     kill -0 "$SERVER_PID" 2>/dev/null || break
     code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SMOKE_PORT/health" 2>/dev/null || true)"
     [[ "$code" == 200 ]] && { ready=1; break; }
