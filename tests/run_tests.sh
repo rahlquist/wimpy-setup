@@ -95,9 +95,9 @@ rm -rf "$td"
 td="$(make_td)"
 run_fetch "$td" -y --no-push 'hf://owner/repo/model.gguf' >/dev/null 2>&1 || true
 rc=0; OUT="$(run_fetch "$td" -y --no-push 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
-# Current behaviour: sidecar guard fires first → exit 1 + "already exists"
-check_exit "T4: duplicate exits 1 (current char)" 1 "$rc"
-check_contains "T4: sidecar already exists msg" "sidecar" "$OUT"
+# Script now idempotent — consistent re-registration exits 0
+check_exit "T4: duplicate exits 0 (idempotent)" 0 "$rc"
+check_contains "T4: sidecar already exists msg" "already registered" "$OUT"
 rm -rf "$td"
 
 # T5: Low native context (<65536) should die

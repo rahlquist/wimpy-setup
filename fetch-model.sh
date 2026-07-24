@@ -90,6 +90,14 @@ recover_dossier(){
   err "Paste the fenced block at the bottom to Hermes to recover."
 }
 
+PIPELINE_OK=0
+cleanup_source(){
+  [[ "$SRC_CLASS" == "local" && "$SOURCE_COPIED" == "1" && "$KEEP_SOURCE" == "0" ]] || return 0
+  [[ -f "$LOCAL_SRC" ]] || return 0
+  [[ ! "$LOCAL_SRC" -ef "$MODEL_PATH" ]] || return 0
+  rm -f -- "$LOCAL_SRC" && ok "removed local source: $LOCAL_SRC (use --keep-source to retain)"
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GGUF_INSPECTOR="${GGUF_INSPECTOR:-$SCRIPT_DIR/tools/gguf_metadata.py}"
 INVENTORY_RENDERER="${INVENTORY_RENDERER:-$SCRIPT_DIR/tools/render_model_inventory.py}"
@@ -98,7 +106,7 @@ METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
 
 NAME=""; CTX="65536"; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1
 SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""; AUTO_PUSH=1
-KEEP_SOURCE=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""
+KEEP_SOURCE=0; SOURCE_COPIED=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -n) NAME="${2:-}"; shift 2;;
@@ -155,8 +163,12 @@ classify_input() {
     [[ "$FILE" == *.gguf ]] || return 1
     return 0
   fi
-  # URL: http(s)://
-  if [[ "$value" =~ ^https?:// ]]; then
+  # URL: http(s):// (not huggingface.co — those go through the HF path below)
+  if [[ "$value" == https://huggingface.co/* || "$value" == http://huggingface.co/* \
+     || "$value" == https://www.huggingface.co/* || "$value" == http://www.huggingface.co/* ]]; then
+    # Fall through to HF parser below
+    :
+  elif [[ "$value" == http://* || "$value" == https://* ]]; then
     SRC_CLASS="url"
     URL="$value"
     local base="${value%%\?*}"; base="${base%%#*}"
@@ -171,18 +183,18 @@ classify_input() {
   value="${value#hf://}"
   value="${value#https://huggingface.co/}"
   value="${value#http://huggingface.co/}"
-  value="${value%/resolve/main/*}"
-  value="${value%/blob/main/*}"
-  value="${value#*/resolve/main/}"
-  value="${value#*/blob/main/}"
+  value="${value#https://www.huggingface.co/}"
+  value="${value#http://www.huggingface.co/}"
+  value="${value/\/resolve\/main\//\/}"
+  value="${value/\/blob\/main\//\/}"
   [[ "$value" =~ ^([^/[:space:]]+)/([^/[:space:]]+)/(.+\.gguf)$ ]] || return 1
   OWNER="${BASH_REMATCH[1]}"; REPO="${BASH_REMATCH[2]}"; FILE="${BASH_REMATCH[3]}"
   [[ "$FILE" != /* && "$FILE" != *".."* ]] || return 1
   return 0
 }
 # Dep checks: hf only for hf class, curl only for url class
-set_stage "classify"
 classify_input "$SPEC" || die "unsupported spec: $SPEC (expected hf://..., http(s)://....gguf, or local .gguf path)"
+set_stage "classify"
 [[ "$FILE" == *.gguf && "$FILE" != *[[:space:]]* ]] || die "model filename must be one .gguf file"
 case "$SRC_CLASS" in
   hf) command -v hf >/dev/null || die "'hf' not found. Install Hugging Face Hub CLI first.";;
@@ -296,7 +308,8 @@ acquire_model(){
       if ! cp -- "$LOCAL_SRC" "$candidate"; then
         rm -rf -- "$workdir"
         die "cannot copy local source: $LOCAL_SRC"
-      fi ;;
+      fi
+      SOURCE_COPIED=1 ;;
   esac
   [[ -n "${candidate:-}" && -f "$candidate" ]] || { rm -rf -- "$workdir"; die "acquisition failed for $SPEC"; }
   mv -- "$candidate" "$MODEL_PATH" || { rm -rf -- "$workdir"; die "cannot install acquired model: $MODEL_PATH"; }
@@ -307,6 +320,7 @@ acquire_model(){
 set_stage "acquire"
 acquire_model
 
+set_stage "inspect"
 METADATA_JSON="$(python3 "$GGUF_INSPECTOR" "$MODEL_PATH")" || die "could not inspect downloaded GGUF metadata"
 read -r ARCH NATIVE_CTX BLOCKS EXPERTS EXPERTS_USED <<EOF_META
 $(python3 - "$METADATA_JSON" <<'PY'
@@ -322,6 +336,7 @@ import json,sys
 print(json.loads(sys.argv[1]).get('description','').replace('\n',' ').strip())
 PY
 )"
+set_stage "validate"
 [[ "$NATIVE_CTX" =~ ^[0-9]+$ ]] || die "GGUF has no usable native context metadata"
 (( NATIVE_CTX >= 65536 )) || die "GGUF native context is $NATIVE_CTX, below required 65536; config untouched."
 if (( CTX > NATIVE_CTX )); then
@@ -364,6 +379,9 @@ cleanup(){
   fi
   [[ -n "$SMOKE_LOG" ]] && rm -f "$SMOKE_LOG"
   rm -f -- "${COMMIT_INDEX:-}" "${CONFIG_SNAPSHOT:-}" "${INVENTORY_SNAPSHOT:-}" "${SIDECAR_SNAPSHOT:-}"
+  if (( PIPELINE_OK )); then
+    cleanup_source
+  fi
   return 0
 }
 trap cleanup EXIT INT TERM
@@ -410,17 +428,35 @@ PY
   if [[ -n "$CPU_MOE" ]]; then info "intentional MoE expert CPU placement: first $CPU_MOE blocks"; fi
   cleanup; SERVER_PID=""; SMOKE_LOG=""
 }
+set_stage "smoke"
 if (( DO_SMOKE )); then
+  command -v curl >/dev/null || die "'curl' not found — required for smoke test"
   smoke_test || die "smoke test failed; model was not registered"
 else
   warn 'smoke test skipped.'
 fi
 
-(( DO_REGISTER )) || { info "registration skipped. id would be: $NAME"; exit 0; }
+set_stage "register"
+(( DO_REGISTER )) || { PIPELINE_OK=1; info "registration skipped. id would be: $NAME"; exit 0; }
 [[ -n "$CONFIG" ]] || die "llama-swap config not found. Set LLAMA_SWAP_CONFIG."
 [[ -w "$CONFIG" ]] || die "config is not writable: $CONFIG"
 SIDECAR="$METADATA_DIR/$NAME.json"
-[[ ! -e "$SIDECAR" ]] || die "metadata sidecar already exists: $SIDECAR"
+if [[ -e "$SIDECAR" ]]; then
+  set +e
+  python3 - "$SIDECAR" "$FILE" "$REPO_ID" <<'PY'
+import json,sys
+sc=json.load(open(sys.argv[1]))
+ok=sc.get('filename')==sys.argv[2] and sc.get('repository')==sys.argv[3]
+raise SystemExit(0 if ok else 2)
+PY
+  sidecar_rc=$?
+  set -e
+  case "$sidecar_rc" in
+    0) PIPELINE_OK=1; warn "metadata sidecar already exists: $SIDECAR (consistent); nothing to do."; ok "model already registered as '$NAME'."; exit 0;;
+    2) die "name collision: '$NAME' already registered for a different model ($SIDECAR)";;
+    *) die "cannot read existing sidecar: $SIDECAR";;
+  esac
+fi
 mkdir -p "$METADATA_DIR" || die "cannot create metadata directory: $METADATA_DIR"
 mkdir -p "$(dirname "$INVENTORY_PATH")" || die "cannot create inventory directory: $(dirname "$INVENTORY_PATH")"
 SIDECAR_TMP="$(mktemp "$METADATA_DIR/.${NAME}.XXXXXX")" || die "cannot create metadata temporary file"
@@ -474,7 +510,7 @@ set -e
 rm -f "$CMDFILE"
 case "$rc" in
   0) ok "registered '$NAME' in $CONFIG.";;
-  3) rm -f -- "$CONFIG_BACKUP" "$SIDECAR_TMP" "$INVENTORY_TMP"; warn "model id '$NAME' already exists; config untouched."; exit 0;;
+  3) rm -f -- "$CONFIG_BACKUP" "$SIDECAR_TMP" "$INVENTORY_TMP"; PIPELINE_OK=1; warn "model id '$NAME' already exists; config untouched."; exit 0;;
   *) rm -f -- "$CONFIG_BACKUP" "$SIDECAR_TMP" "$INVENTORY_TMP"; die "config insertion failed; config untouched.";;
 esac
 
@@ -582,6 +618,7 @@ commit_model_update(){
   COMMIT_REF="$ref"
   cleanup_commit_artifacts
 }
+set_stage "commit"
 if (( AUTO_PUSH )) && [[ -n "$ROOT" ]]; then
   git -C "$ROOT" diff --cached --quiet || die "the Git index has staged changes; refusing automatic commit"
   commit_model_update
@@ -591,4 +628,5 @@ else
   cleanup_commit_artifacts
 fi
 
+PIPELINE_OK=1
 exit 0
