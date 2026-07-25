@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Dispatch curl wrapper for test harness.
+
+Delegates to real curl unless one or more arguments contains '.gguf'
+(the model-download pattern). Model-download calls are serviced from
+test fixtures instead of the network.
+
+Real curl is resolved by looking at REAL_CURL (env) or by searching
+%s (the stub directory's parent) on PATH — avoids self-referencing.
+
+Env overrides:
+  CURL_STUB_FIXTURE  — fixture basename stem (default "tiny")
+  CURL_STUB_FAIL     — set to "1" to simulate download failure
+  FIXTURES           — path to fixture directory
+"""
+import os, shutil, subprocess, sys
+
+STUB_DIR = os.path.dirname(os.path.realpath(__file__))
+
+# Resolve real curl without hitting ourselves
+REAL_CURL = os.environ.get("REAL_CURL")
+if not REAL_CURL:
+    # Search PATH but skip our own directory
+    raw_path = os.environ.get("PATH", "")
+    segments = [s for s in raw_path.split(os.pathsep) if os.path.realpath(s) != STUB_DIR]
+    for s in segments:
+        candidate = os.path.join(s, "curl")
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            REAL_CURL = candidate
+            break
+if not REAL_CURL:
+    REAL_CURL = shutil.which("curl", path=os.pathsep.join(segments)) if segments else shutil.which("curl")
+
+if not REAL_CURL:
+    print("curl stub: cannot find real curl", file=sys.stderr)
+    sys.exit(1)
+
+args = sys.argv[1:]
+
+# Dispatch on .gguf presence in any arg — only model downloads carry .gguf
+if not any(a.endswith(".gguf") for a in args):
+    os.execv(REAL_CURL, [REAL_CURL] + args)
+
+# ---- Model-download stub path ----
+if os.environ.get("CURL_STUB_FAIL") == "1":
+    print("CURL_STUB_FAIL=1 — simulated download failure", file=sys.stderr)
+    sys.exit(1)
+
+fix = os.environ.get("CURL_STUB_FIXTURE") or os.environ.get("HF_STUB_FIXTURE", "tiny")
+fn = f"{fix}.gguf"
+
+# Locate fixture
+here = os.path.realpath(os.path.join(STUB_DIR, ".."))
+fixture_paths = []
+if os.environ.get("FIXTURES"):
+    fixture_paths.append(os.path.join(os.environ["FIXTURES"], fn))
+fixture_paths.extend([
+    os.path.join(here, "fixtures", fn),
+    os.path.join(here, "..", "fixtures", fn),  # when cwd is tests/
+])
+
+fp = None
+for c in fixture_paths:
+    if os.path.isfile(c):
+        fp = c
+        break
+
+if not fp:
+    print(f"curl stub: fixture '{fn}' not found (searched: {fixture_paths})", file=sys.stderr)
+    sys.exit(1)
+
+# Find the --output argument and write the fixture
+out_idx = None
+for flag in ("--output", "-o"):
+    if flag in args:
+        out_idx = args.index(flag)
+        break
+
+if out_idx is not None:
+    dest = args[out_idx + 1]
+    os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+    with open(fp, "rb") as f:
+        with open(dest, "wb") as f2:
+            f2.write(f.read())
+    sys.exit(0)
+
+# .gguf in args but no output flag — error (shouldn't happen in normal flow)
+print("curl stub: .gguf detected but no --output/-o found", file=sys.stderr)
+sys.exit(2)
