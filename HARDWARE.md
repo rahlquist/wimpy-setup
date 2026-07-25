@@ -93,3 +93,6 @@ Ryzen 7 7700 / 32 GiB DDR5 build above. Consequences to be aware of:
 - NVIDIA driver/CUDA toolkit packages (`nvidia-utils`, `linux-cachyos-nvidia-open`,
   etc.) remain installed and untouched through the ROCm migration specifically
   so the 5060 Ti slots back in without a driver reinstall.
+
+## More hardware details
+- https://linux-hardware.org/?probe=9826016cac

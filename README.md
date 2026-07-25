@@ -4,6 +4,8 @@ Reproducible setup scripts for **wimpy** (Ryzen 7 7700 / 32GB / dual GPU:
 AMD R9700 32GB + NVIDIA RTX 5060 Ti 16GB). Wimpy is the bare metal inference
 and VM host, running both GPUs concurrently. See `HARDWARE.md` for full specs.
 
+> This is not a guide. It comes with no promise of support or assistance. It is merely a way for me to safely share my setup in a manner I can restore my system with and perhaps give others some inspiration.
+
 ## Wimpy host steps
 
 | Step | Script | What it does |
