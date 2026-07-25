@@ -1,28 +1,102 @@
 #!/usr/bin/env bash
-# fetch-model.sh — download one explicit Hugging Face GGUF, inspect its local
-# metadata, smoke-test it on the configured GPU, register it in llama-swap, and
-# update the repository model inventory.
+# fetch-model.sh — download a GGUF model file from Hugging Face, HTTP(S), or
+# a local path, inspect its metadata, smoke-test on the configured GPU,
+# register in llama-swap, and update the repository model inventory.
 #
 # Usage:
 #   ./fetch-model.sh [options] "hf download hf://owner/repo/file.gguf [N]"
-#   ./fetch-model.sh [options] "hf://owner/repo/file.gguf" [N]
+#   ./fetch-model.sh [options] "https://example.com/path/to/model.gguf [N]"
+#   ./fetch-model.sh [options] /abs/or/rel/path/to/model.gguf
 #
-# The optional trailing N is --n-cpu-moe N. It is accepted only for models whose
-# downloaded GGUF metadata proves they are MoE models. The script never evals a
-# pasted command and never guesses a CPU-MoE layer count.
+# The optional trailing N is --n-cpu-moe N. It is accepted only for models
+# whose downloaded GGUF metadata proves they are MoE models. The script never
+# evals a pasted command and never guesses a CPU-MoE layer count.
 #
 # Defaults are deliberate:
 #   * all registered models remain at 65536 context (the Hermes minimum), even
 #     when a model's native GGUF context is higher;
 #   * all entries use a downloaded local --model path; never llama.cpp -hf;
-#   * CPU-MoE offload is absent unless the user explicitly supplies N.
+#   * CPU-MoE offload is absent unless the user explicitly supplies N;
+#   * local source files are removed after a successful pipeline; pass
+#     --keep-source to retain the original.
 set -euo pipefail
 
 err(){ printf '\033[31m[ERR]\033[0m  %s\n' "$*" >&2; }
 ok(){  printf '\033[32m[OK]\033[0m   %s\n' "$*"; }
 info(){ printf '\033[36m[..]\033[0m   %s\n' "$*"; }
 warn(){ printf '\033[33m[!!]\033[0m   %s\n' "$*" >&2; }
-die(){ err "$*"; exit 1; }
+die(){
+  if [[ -n "$STAGE" ]]; then
+    fail "$*" 1
+  else
+    err "$*"; exit 1
+  fi
+}
+STAGE=""
+STUCK_REASON=""; LAST_RC=""; ROLLED_BACK=""
+DOSSIER_DIR="${DOSSIER_DIR:-$PWD}"
+set_stage(){ STAGE="$1"; }
+fail(){
+  local msg="$1" rc="${2:-1}"
+  err "[$STAGE] $msg"
+  STUCK_REASON="$msg"; LAST_RC="$rc"
+  recover_dossier
+  exit "$rc"
+}
+recover_dossier(){
+  local ts; ts="$(date +%Y%m%d%H%M%S)"
+  local name="${NAME:-${FILE:-unknown}}"; name="${name%.gguf}"; name="${name:-unknown}"
+  local dossier="${DOSSIER_DIR}/fetch-model-${name}-${ts}.dossier.md"
+  {
+    echo "# fetch-model.sh recovery dossier — $ts"
+    echo
+    echo "## What it was doing"
+    echo "STAGE: ${STAGE:-unknown}"
+    echo "SRC_CLASS: ${SRC_CLASS:-?}   SPEC: ${SPEC:-?}"
+    echo
+    echo "## Stuck at"
+    echo "$STUCK_REASON"
+    echo
+    echo "## Environment"
+    echo "- llama-server : ${LLAMA_SERVER:-?}"
+    echo "- gpu device   : ${GPU_DEVICE:-?} (pin ${GPU_ENV_VAR:-?}=${GPU_PIN_VALUE:-?})"
+    echo "- models dir   : ${MODELS_DIR:-?}"
+    echo "- model path   : ${MODEL_PATH:-<not acquired>}"
+    echo "- config       : ${CONFIG:-<none>}"
+    echo "- config backup: ${CONFIG_BACKUP:-<none / already cleaned>}"
+    echo "- local src    : ${LOCAL_SRC:-<n/a>}"
+    echo
+    echo "## Partial state / what already succeeded"
+    echo "- acquired model file present: $([[ -f "${MODEL_PATH:-}" ]] && echo yes || echo no)"
+    echo "- config rolled back: ${ROLLED_BACK:+yes}${ROLLED_BACK:-no}"
+    echo
+    echo "## Resume command"
+    local resume="cd \"$(pwd)\" && ./fetch-model.sh"
+    local rspec; rspec="$(printf '%q' "${SPEC:-}")"; resume+=" ${rspec}"
+    [[ -n "${CPU_MOE:-}" ]] && resume+=" --n-cpu-moe $CPU_MOE"
+    (( ASSUME_YES )) && resume+=" -y"
+    (( DO_SMOKE )) || resume+=" --no-smoke"
+    echo "  $resume"
+    echo
+    echo "## Prompt to paste to Hermes"
+    echo '```'
+    echo "fetch-model.sh got stuck at stage '${STAGE:-?}' while handling '${SPEC:-?}'."
+    echo "Reason: $STUCK_REASON"
+    echo "Model file present: $([[ -f "${MODEL_PATH:-}" ]] && echo yes || echo no). Config rolled back: ${ROLLED_BACK:+yes}${ROLLED_BACK:-no}."
+    echo "Config backup (if any): ${CONFIG_BACKUP:-none}. Help me recover — likely need to (re)run from the resume command above or fix the root cause, then re-run."
+    echo '```'
+  } > "$dossier" 2>&1
+  err "Wrote recovery dossier: $dossier"
+  err "Paste the fenced block at the bottom to Hermes to recover."
+}
+
+PIPELINE_OK=0
+cleanup_source(){
+  [[ "$SRC_CLASS" == "local" && "$SOURCE_COPIED" == "1" && "$KEEP_SOURCE" == "0" ]] || return 0
+  [[ -f "$LOCAL_SRC" ]] || return 0
+  [[ ! "$LOCAL_SRC" -ef "$MODEL_PATH" ]] || return 0
+  rm -f -- "$LOCAL_SRC" && ok "removed local source: $LOCAL_SRC (use --keep-source to retain)"
+}
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GGUF_INSPECTOR="${GGUF_INSPECTOR:-$SCRIPT_DIR/tools/gguf_metadata.py}"
@@ -32,6 +106,7 @@ METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
 
 NAME=""; CTX="65536"; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1
 SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""; AUTO_PUSH=1
+KEEP_SOURCE=0; SOURCE_COPIED=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -n) NAME="${2:-}"; shift 2;;
@@ -41,9 +116,10 @@ while [[ $# -gt 0 ]]; do
     --no-push) AUTO_PUSH=0; shift;;
     -y) ASSUME_YES=1; shift;;
     --no-smoke) DO_SMOKE=0; shift;;
+    --keep-source) KEEP_SOURCE=1; shift;;
     --no-register) DO_REGISTER=0; shift;;
     -h|--help)
-      sed -n '2,22p' "$0"
+      sed -n '2,21p' "$0"
       exit 0;;
     -*) die "unknown option: $1";;
     *)
@@ -69,32 +145,63 @@ if [[ "$SPEC" =~ ^(.*\.gguf)[[:space:]]+([0-9]+)$ ]]; then
 fi
 [[ "$CTX" =~ ^[0-9]+$ ]] && (( CTX >= 65536 )) || die "--ctx-size must be an integer >= 65536"
 [[ -z "$CPU_MOE" || "$CPU_MOE" =~ ^[0-9]+$ ]] || die "--n-cpu-moe must be a non-negative integer"
-command -v hf >/dev/null || die "'hf' not found. Install Hugging Face Hub CLI first."
 command -v python3 >/dev/null || die "python3 is required"
 [[ -f "$GGUF_INSPECTOR" ]] || die "GGUF inspector missing: $GGUF_INSPECTOR"
 : "${SMOKE_PORT:=18080}"
+: "${SMOKE_TRIES:=180}"
 : "${MODELS_DIR:=$HOME/.cache/llama.cpp}"
+: "${MAX_RETRIES:=3}"
 
-# Never evaluate pasted text. Accept the explicitly documented, one-file forms.
-parse_spec(){
+classify_input() {
   local value="$1"
+  # LOCAL FILE
+  if [[ -f "$value" ]]; then
+    SRC_CLASS="local"
+    LOCAL_SRC="$(cd "$(dirname "$value")" && pwd)/$(basename "$value")"
+    FILE="$(basename "$value")"
+    OWNER="local"; REPO="local"
+    [[ "$FILE" == *.gguf ]] || return 1
+    return 0
+  fi
+  # URL: http(s):// (not huggingface.co — those go through the HF path below)
+  if [[ "$value" == https://huggingface.co/* || "$value" == http://huggingface.co/* \
+     || "$value" == https://www.huggingface.co/* || "$value" == http://www.huggingface.co/* ]]; then
+    # Fall through to HF parser below
+    :
+  elif [[ "$value" == http://* || "$value" == https://* ]]; then
+    SRC_CLASS="url"
+    URL="$value"
+    local base="${value%%\?*}"; base="${base%%#*}"
+    FILE="${base##*/}"
+    [[ "$FILE" == *.gguf ]] || return 1
+    OWNER="url"; REPO="$(printf '%s' "$URL" | sed -E 's#https?://##; s#/.*$##; s/\./-/g')"
+    return 0
+  fi
+  # HF: hf://  |  hf download hf://  |  https://huggingface.co/
+  SRC_CLASS="hf"
   value="${value#hf download }"
   value="${value#hf://}"
   value="${value#https://huggingface.co/}"
   value="${value#http://huggingface.co/}"
-  value="${value%/resolve/main/*}"
-  value="${value%/blob/main/*}"
-  value="${value#*/resolve/main/}"
-  value="${value#*/blob/main/}"
+  value="${value#https://www.huggingface.co/}"
+  value="${value#http://www.huggingface.co/}"
+  value="${value/\/resolve\/main\//\/}"
+  value="${value/\/blob\/main\//\/}"
   [[ "$value" =~ ^([^/[:space:]]+)/([^/[:space:]]+)/(.+\.gguf)$ ]] || return 1
-  OWNER="${BASH_REMATCH[1]}"
-  REPO="${BASH_REMATCH[2]}"
-  FILE="${BASH_REMATCH[3]}"
-  [[ "$FILE" != /* && "$FILE" != *".."* && "$FILE" != *$'\n'* ]] || return 1
-  REPO_ID="$OWNER/$REPO"
+  OWNER="${BASH_REMATCH[1]}"; REPO="${BASH_REMATCH[2]}"; FILE="${BASH_REMATCH[3]}"
+  [[ "$FILE" != /* && "$FILE" != *".."* ]] || return 1
+  return 0
 }
-parse_spec "$SPEC" || die "unsupported HF spec. Expected hf://owner/repo/file.gguf (optionally prefixed with 'hf download ')."
+# Dep checks: hf only for hf class, curl only for url class
+classify_input "$SPEC" || die "unsupported spec: $SPEC (expected hf://..., http(s)://....gguf, or local .gguf path)"
+set_stage "classify"
 [[ "$FILE" == *.gguf && "$FILE" != *[[:space:]]* ]] || die "model filename must be one .gguf file"
+case "$SRC_CLASS" in
+  hf) command -v hf >/dev/null || die "'hf' not found. Install Hugging Face Hub CLI first.";;
+  url) command -v curl >/dev/null || die "'curl' not found. Install curl first.";;
+  local) [[ -r "$LOCAL_SRC" ]] || die "local source not readable: $LOCAL_SRC";;
+esac
+REPO_ID="${OWNER}/${REPO}"
 
 # The example may be supplied as an unquoted command with a separate final N.
 # The main parser has already put that N in CPU_MOE.
@@ -154,6 +261,7 @@ TTL="$(grep -hoE 'ttl:[[:space:]]*[0-9]+' "${CONFIG:-/dev/null}" 2>/dev/null | g
 TTL="${TTL:-300}"
 
 printf '%s\n' '  ┌─ detected ─────────────────────────────────────────────'
+printf '  │ source       : %s\n' "${SRC_CLASS:-?}"
 printf '  │ repo         : %s\n' "$REPO_ID"
 printf '  │ file         : %s\n' "$FILE"
 printf '  │ llama-server : %s\n' "$LLAMA_SERVER"
@@ -168,13 +276,51 @@ if (( ! ASSUME_YES )); then
   [[ "${reply:-Y}" =~ ^[Yy]?$ ]] || { info 'aborted.'; exit 0; }
 fi
 
-mkdir -p "$MODELS_DIR"
-MODEL_PATH="$MODELS_DIR/$FILE"
-info "downloading $REPO_ID/$FILE -> $MODEL_PATH"
-hf download "$REPO_ID" "$FILE" --local-dir "$MODELS_DIR"
-[[ -f "$MODEL_PATH" ]] || die "download completed but exact model file was not found: $MODEL_PATH"
-ok "downloaded: $MODEL_PATH ($(du -h "$MODEL_PATH" | cut -f1))"
+acquire_model(){
+  mkdir -p "$MODELS_DIR" || die "cannot create models directory: $MODELS_DIR"
+  MODEL_PATH="$MODELS_DIR/$FILE"
+  if [[ -f "$MODEL_PATH" ]]; then
+    ok "already acquired: $MODEL_PATH (skipping)"
+    return 0
+  fi
+  local workdir candidate attempt
+  workdir="$(mktemp -d "$MODELS_DIR/.fetch.XXXXXX")" || die "cannot create acquire temp dir"
+  case "$SRC_CLASS" in
+    hf)
+      for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
+        if hf download "$REPO_ID" "$FILE" --local-dir "$workdir" &&
+           [[ -f "$workdir/$FILE" ]]; then
+          candidate="$workdir/$FILE"; break; fi
+        rm -f -- "$workdir/$FILE"
+        if (( attempt < MAX_RETRIES )); then sleep "$attempt"; fi
+      done ;;
+    url)
+      candidate="$workdir/$FILE"
+      for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
+        if curl -fL --retry 2 --retry-delay 1 --output "$candidate" "$URL" &&
+           [[ -s "$candidate" ]]; then
+          break; fi
+        rm -f -- "$candidate"
+        if (( attempt < MAX_RETRIES )); then sleep "$attempt"; fi
+      done ;;
+    local)
+      candidate="$workdir/$FILE"
+      if ! cp -- "$LOCAL_SRC" "$candidate"; then
+        rm -rf -- "$workdir"
+        die "cannot copy local source: $LOCAL_SRC"
+      fi
+      SOURCE_COPIED=1 ;;
+  esac
+  [[ -n "${candidate:-}" && -f "$candidate" ]] || { rm -rf -- "$workdir"; die "acquisition failed for $SPEC"; }
+  mv -- "$candidate" "$MODEL_PATH" || { rm -rf -- "$workdir"; die "cannot install acquired model: $MODEL_PATH"; }
+  rm -rf -- "$workdir"
+  [[ -f "$MODEL_PATH" ]] || die "acquire completed but model file not found: $MODEL_PATH"
+  ok "acquired: $MODEL_PATH ($(du -h "$MODEL_PATH" | cut -f1))"
+}
+set_stage "acquire"
+acquire_model
 
+set_stage "inspect"
 METADATA_JSON="$(python3 "$GGUF_INSPECTOR" "$MODEL_PATH")" || die "could not inspect downloaded GGUF metadata"
 read -r ARCH NATIVE_CTX BLOCKS EXPERTS EXPERTS_USED <<EOF_META
 $(python3 - "$METADATA_JSON" <<'PY'
@@ -190,6 +336,7 @@ import json,sys
 print(json.loads(sys.argv[1]).get('description','').replace('\n',' ').strip())
 PY
 )"
+set_stage "validate"
 [[ "$NATIVE_CTX" =~ ^[0-9]+$ ]] || die "GGUF has no usable native context metadata"
 (( NATIVE_CTX >= 65536 )) || die "GGUF native context is $NATIVE_CTX, below required 65536; config untouched."
 if (( CTX > NATIVE_CTX )); then
@@ -232,6 +379,9 @@ cleanup(){
   fi
   [[ -n "$SMOKE_LOG" ]] && rm -f "$SMOKE_LOG"
   rm -f -- "${COMMIT_INDEX:-}" "${CONFIG_SNAPSHOT:-}" "${INVENTORY_SNAPSHOT:-}" "${SIDECAR_SNAPSHOT:-}"
+  if (( PIPELINE_OK )); then
+    cleanup_source
+  fi
   return 0
 }
 trap cleanup EXIT INT TERM
@@ -243,7 +393,7 @@ smoke_test(){
     --host 127.0.0.1 --port "$SMOKE_PORT" >"$SMOKE_LOG" 2>&1 &
   SERVER_PID=$!
   local i code ready=0
-  for ((i=0; i<180; i++)); do
+  for ((i=0; i<SMOKE_TRIES; i++)); do
     kill -0 "$SERVER_PID" 2>/dev/null || break
     code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SMOKE_PORT/health" 2>/dev/null || true)"
     [[ "$code" == 200 ]] && { ready=1; break; }
@@ -278,17 +428,35 @@ PY
   if [[ -n "$CPU_MOE" ]]; then info "intentional MoE expert CPU placement: first $CPU_MOE blocks"; fi
   cleanup; SERVER_PID=""; SMOKE_LOG=""
 }
+set_stage "smoke"
 if (( DO_SMOKE )); then
+  command -v curl >/dev/null || die "'curl' not found — required for smoke test"
   smoke_test || die "smoke test failed; model was not registered"
 else
   warn 'smoke test skipped.'
 fi
 
-(( DO_REGISTER )) || { info "registration skipped. id would be: $NAME"; exit 0; }
+set_stage "register"
+(( DO_REGISTER )) || { PIPELINE_OK=1; info "registration skipped. id would be: $NAME"; exit 0; }
 [[ -n "$CONFIG" ]] || die "llama-swap config not found. Set LLAMA_SWAP_CONFIG."
 [[ -w "$CONFIG" ]] || die "config is not writable: $CONFIG"
 SIDECAR="$METADATA_DIR/$NAME.json"
-[[ ! -e "$SIDECAR" ]] || die "metadata sidecar already exists: $SIDECAR"
+if [[ -e "$SIDECAR" ]]; then
+  set +e
+  python3 - "$SIDECAR" "$FILE" "$REPO_ID" <<'PY'
+import json,sys
+sc=json.load(open(sys.argv[1]))
+ok=sc.get('filename')==sys.argv[2] and sc.get('repository')==sys.argv[3]
+raise SystemExit(0 if ok else 2)
+PY
+  sidecar_rc=$?
+  set -e
+  case "$sidecar_rc" in
+    0) PIPELINE_OK=1; warn "metadata sidecar already exists: $SIDECAR (consistent); nothing to do."; ok "model already registered as '$NAME'."; exit 0;;
+    2) die "name collision: '$NAME' already registered for a different model ($SIDECAR)";;
+    *) die "cannot read existing sidecar: $SIDECAR";;
+  esac
+fi
 mkdir -p "$METADATA_DIR" || die "cannot create metadata directory: $METADATA_DIR"
 mkdir -p "$(dirname "$INVENTORY_PATH")" || die "cannot create inventory directory: $(dirname "$INVENTORY_PATH")"
 SIDECAR_TMP="$(mktemp "$METADATA_DIR/.${NAME}.XXXXXX")" || die "cannot create metadata temporary file"
@@ -297,8 +465,9 @@ CONFIG_BACKUP="$(mktemp "${CONFIG}.fetch-model.XXXXXX")" || { rm -f -- "$SIDECAR
 CONFIG_SNAPSHOT="$(mktemp "${CONFIG}.fetch-model.snapshot.XXXXXX")" || { rm -f -- "$SIDECAR_TMP" "$INVENTORY_TMP" "$CONFIG_BACKUP"; die "cannot create config snapshot"; }
 cp -- "$CONFIG" "$CONFIG_BACKUP" || { rm -f -- "$SIDECAR_TMP" "$INVENTORY_TMP" "$CONFIG_BACKUP" "$CONFIG_SNAPSHOT"; die "cannot back up config"; }
 rollback_registration(){
-  cp -- "$CONFIG_BACKUP" "$CONFIG"
-  rm -f -- "$SIDECAR" "$SIDECAR_TMP" "$INVENTORY_TMP"
+  ROLLED_BACK=1
+  [[ -n "${CONFIG_BACKUP:-}" && -f "$CONFIG_BACKUP" ]] && cp -- "$CONFIG_BACKUP" "$CONFIG" || true
+  rm -f -- "${SIDECAR:-}" "${SIDECAR_TMP:-}" "${INVENTORY_TMP:-}"
 }
 
 # Insert using a constrained textual transformation. It preserves comments and
@@ -341,7 +510,7 @@ set -e
 rm -f "$CMDFILE"
 case "$rc" in
   0) ok "registered '$NAME' in $CONFIG.";;
-  3) rm -f -- "$CONFIG_BACKUP" "$SIDECAR_TMP" "$INVENTORY_TMP"; warn "model id '$NAME' already exists; config untouched."; exit 0;;
+  3) rm -f -- "$CONFIG_BACKUP" "$SIDECAR_TMP" "$INVENTORY_TMP"; PIPELINE_OK=1; warn "model id '$NAME' already exists; config untouched."; exit 0;;
   *) rm -f -- "$CONFIG_BACKUP" "$SIDECAR_TMP" "$INVENTORY_TMP"; die "config insertion failed; config untouched.";;
 esac
 
@@ -449,6 +618,7 @@ commit_model_update(){
   COMMIT_REF="$ref"
   cleanup_commit_artifacts
 }
+set_stage "commit"
 if (( AUTO_PUSH )) && [[ -n "$ROOT" ]]; then
   git -C "$ROOT" diff --cached --quiet || die "the Git index has staged changes; refusing automatic commit"
   commit_model_update
@@ -458,4 +628,5 @@ else
   cleanup_commit_artifacts
 fi
 
+PIPELINE_OK=1
 exit 0

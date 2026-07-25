@@ -104,16 +104,57 @@ curl http://wimpy.home.lan:8080/v1/models   # verify wimpy reachable
   `-cuda` entries use `/opt/llama-cuda/bin/llama-server` + `--device CUDA0`. On
   the 32GB R9700 all MoE experts now fit on the GPU (`--n-cpu-moe 0`); if you
   re-tune for tighter VRAM, smoke-test the count per hardware/context.
-- `fetch-model.sh` — accepts a pasted one-file Hugging Face command such as
-  `./fetch-model.sh "hf download hf://owner/repo/file.gguf 21"`. It downloads an
-  explicit local GGUF, inspects its metadata, validates the optional CPU-MoE
-  block count, smoke-tests the final llama.cpp command, registers the model,
-  updates `model-inventory.html`, then commits and pushes the two tracked files.
-  `--no-push` disables that final remote write.
+- `fetch-model.sh` — multi-source GGUF acquisition pipeline. Accepts a
+  Hugging Face paste, a direct HTTP(S) URL, or a local `.gguf` path. Covers
+  inspection, metadata validation, GPU smoke-test, registration, and automatic
+  commit+push. See "Adding a model" below.
 - `model-inventory.html` — generated tracked inventory: llama-swap alias,
   filename, added date, GGUF architecture/native context, description, and
   effective custom llama.cpp parameters.
 - `llama-swap.service` — the systemd unit (also installed by `05-llama-cpp.sh`).
+
+### Adding a model
+
+```bash
+./fetch-model.sh [options] <spec>
+```
+
+**Source classes:**
+
+| Class | Examples |
+|-------|----------|
+| Hugging Face | `hf download hf://owner/repo/file.gguf 21`, `hf://owner/repo/file.gguf`, `https://huggingface.co/owner/repo/resolve/main/file.gguf` |
+| HTTP(S) URL | `https://example.com/path/model.gguf` (uses `curl`) |
+| Local file | `/abs/or/rel/path/to/model.gguf` |
+
+A trailing number (e.g. `21`) sets `--n-cpu-moe N` — only accepted when GGUF
+metadata confirms the model is MoE. Rejected for dense models.
+
+**Key flags:**
+
+| Flag | Effect |
+|------|--------|
+| `-n <id>` | Explicit model id (default: derived from filename) |
+| `-c <ctx>` | Requested context (default and minimum 65536; must not exceed the model's native GGUF context) |
+| `-d ROCm0|CUDA0` | Override GPU device detection |
+| `--keep-source` | Retain original local file after pipeline success (default: deleted) |
+| `--no-smoke` | Skip GPU smoke test |
+| `--no-register` | Download and inspect only, skip config registration |
+| `--no-push` | Disable automatic git commit and push after registration |
+
+**Error recovery:** Mid-pipeline failures (inspect/validate/smoke/register) write
+a `*.dossier.md` containing the stage, partial state, and a ready-to-run resume
+command. Paste the fenced block to Hermes to recover. Bad specs (classify
+failure) produce no dossier — that is a usage error, not a pipeline stall.
+
+**Idempotency:** Re-registering the same model (same name, same repo/file) exits
+0 with a warning. Registering the same name with different content exits 1
+(name collision) — config and existing model are untouched.
+
+**Models directory:** `MODELS_DIR` env var (default `~/.cache/llama.cpp/`).
+
+**Tests:** `bash tests/run_tests.sh` — uses stubs for `hf`, `curl`, and
+`llama-server`; no network or GPU required.
 
 ### Hugging Face authentication
 
