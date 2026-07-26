@@ -105,7 +105,7 @@ INVENTORY_PATH="${INVENTORY_PATH:-$SCRIPT_DIR/model-inventory.html}"
 METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
 
 NAME=""; CTX="65536"; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1
-SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""; AUTO_PUSH=1
+SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""
 KEEP_SOURCE=0; SOURCE_COPIED=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -113,7 +113,6 @@ while [[ $# -gt 0 ]]; do
     -c) CTX="${2:-}"; shift 2;;
     -d) DEVICE_OVERRIDE="${2:-}"; shift 2;;
     --n-cpu-moe) CPU_MOE="${2:-}"; shift 2;;
-    --no-push) AUTO_PUSH=0; shift;;
     -y) ASSUME_YES=1; shift;;
     --no-smoke) DO_SMOKE=0; shift;;
     --keep-source) KEEP_SOURCE=1; shift;;
@@ -229,17 +228,7 @@ detect_gpu_device(){
 
 LLAMA_SERVER="$(detect_server)"
 CONFIG="$(detect_config || true)"
-ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
 [[ -n "$LLAMA_SERVER" ]] || die "llama-server not found. Set LLAMA_SERVER=/path/to/llama-server."
-# Automatic commits must never absorb somebody else's uncommitted config or
-# inventory edits. The fetcher owns only the clean source-of-truth files.
-if (( AUTO_PUSH )) && [[ -n "$ROOT" ]]; then
-  [[ "$CONFIG" == "$ROOT/llama-swap-config.yaml" && "$INVENTORY_PATH" == "$ROOT/model-inventory.html" && "$METADATA_DIR" == "$ROOT/model-metadata" ]] || die "automatic push requires this repository's config, inventory, and metadata paths"
-  git -C "$ROOT" diff --cached --quiet || die "the Git index already has staged changes; commit/stash them before automatic registration"
-  git -C "$ROOT" diff --quiet -- llama-swap-config.yaml || die "llama-swap-config.yaml has uncommitted edits; commit/stash them before automatic registration"
-  git -C "$ROOT" ls-files --error-unmatch model-inventory.html >/dev/null 2>&1 || die "model-inventory.html must be tracked before automatic registration"
-  git -C "$ROOT" diff --quiet -- model-inventory.html || die "model-inventory.html has uncommitted edits; commit/stash them before automatic registration"
-fi
 GPU_DEVICE="${DEVICE_OVERRIDE:-$(detect_gpu_device || true)}"
 case "$GPU_DEVICE" in
   ROCm*) GPU_ENV_VAR="HIP_VISIBLE_DEVICES";;
@@ -378,7 +367,6 @@ cleanup(){
     wait "$SERVER_PID" 2>/dev/null || true
   fi
   [[ -n "$SMOKE_LOG" ]] && rm -f "$SMOKE_LOG"
-  rm -f -- "${COMMIT_INDEX:-}" "${CONFIG_SNAPSHOT:-}" "${INVENTORY_SNAPSHOT:-}" "${SIDECAR_SNAPSHOT:-}"
   if (( PIPELINE_OK )); then
     cleanup_source
   fi
@@ -462,8 +450,7 @@ mkdir -p "$(dirname "$INVENTORY_PATH")" || die "cannot create inventory director
 SIDECAR_TMP="$(mktemp "$METADATA_DIR/.${NAME}.XXXXXX")" || die "cannot create metadata temporary file"
 INVENTORY_TMP="$(mktemp "${INVENTORY_PATH}.XXXXXX")" || { rm -f -- "$SIDECAR_TMP"; die "cannot create inventory temporary file"; }
 CONFIG_BACKUP="$(mktemp "${CONFIG}.fetch-model.XXXXXX")" || { rm -f -- "$SIDECAR_TMP" "$INVENTORY_TMP"; die "cannot create config backup"; }
-CONFIG_SNAPSHOT="$(mktemp "${CONFIG}.fetch-model.snapshot.XXXXXX")" || { rm -f -- "$SIDECAR_TMP" "$INVENTORY_TMP" "$CONFIG_BACKUP"; die "cannot create config snapshot"; }
-cp -- "$CONFIG" "$CONFIG_BACKUP" || { rm -f -- "$SIDECAR_TMP" "$INVENTORY_TMP" "$CONFIG_BACKUP" "$CONFIG_SNAPSHOT"; die "cannot back up config"; }
+cp -- "$CONFIG" "$CONFIG_BACKUP" || { rm -f -- "$SIDECAR_TMP" "$INVENTORY_TMP" "$CONFIG_BACKUP"; die "cannot back up config"; }
 rollback_registration(){
   ROLLED_BACK=1
   [[ -n "${CONFIG_BACKUP:-}" && -f "$CONFIG_BACKUP" ]] && cp -- "$CONFIG_BACKUP" "$CONFIG" || true
@@ -547,10 +534,6 @@ if (( rc != 0 )); then
   die "metadata or inventory generation failed; registration rolled back"
 fi
 mv -- "$INVENTORY_TMP" "$INVENTORY_PATH"
-cp -- "$CONFIG" "$CONFIG_SNAPSHOT" || { rollback_registration; rm -f -- "$CONFIG_BACKUP" "$CONFIG_SNAPSHOT"; die "cannot capture config snapshot"; }
-INVENTORY_SNAPSHOT="$(mktemp "${INVENTORY_PATH}.fetch-model.snapshot.XXXXXX")" || { rollback_registration; rm -f -- "$CONFIG_BACKUP" "$CONFIG_SNAPSHOT"; die "cannot create inventory snapshot"; }
-SIDECAR_SNAPSHOT="$(mktemp "${SIDECAR}.fetch-model.snapshot.XXXXXX")" || { rollback_registration; rm -f -- "$CONFIG_BACKUP" "$CONFIG_SNAPSHOT" "$INVENTORY_SNAPSHOT"; die "cannot create metadata snapshot"; }
-cp -- "$INVENTORY_PATH" "$INVENTORY_SNAPSHOT" && cp -- "$SIDECAR" "$SIDECAR_SNAPSHOT" || { rollback_registration; rm -f -- "$CONFIG_BACKUP" "$CONFIG_SNAPSHOT" "$INVENTORY_SNAPSHOT" "$SIDECAR_SNAPSHOT"; die "cannot capture model update snapshots"; }
 rm -f -- "$CONFIG_BACKUP"
 ok "wrote metadata sidecar: $SIDECAR"
 ok "updated model inventory: $INVENTORY_PATH"
@@ -559,74 +542,7 @@ if [[ "$CONFIG" != /etc/llama-swap/config.yaml ]]; then
   info 'To deploy: first back up /etc/llama-swap/config.yaml, then copy this repository config there. llama-swap watches config changes; no restart is needed.'
 fi
 
-# User requested automatic commit/push after successful updates. The tracked
-# metadata sidecar and generated inventory are staged with the source config.
-# Prefer an already-exported GitHub token; otherwise use BWSM when this host was
-# provisioned with BWS_ACCESS_TOKEN. The token exists only in this process and
-# is passed to Git through a temporary askpass helper, never into git config.
-github_token(){
-  [[ -n "${GITHUB_TOKEN:-}" ]] && { printf '%s' "$GITHUB_TOKEN"; return; }
-  local bws project secret
-  bws="${BWS_BIN:-$HOME/.local/bin/bws}"
-  [[ -x "$bws" && -n "${BWS_ACCESS_TOKEN:-}" ]] || return 1
-  project="$($bws project list | python3 -c 'import json,sys; print(next((x["id"] for x in json.load(sys.stdin) if x.get("name")=="Hermes"), ""))')"
-  [[ -n "$project" ]] || return 1
-  secret="$($bws secret list "$project" | python3 -c 'import json,sys; print(next((x["id"] for x in json.load(sys.stdin) if x.get("key")=="GITHUB_TOKEN"), ""))')"
-  [[ -n "$secret" ]] || return 1
-  "$bws" secret get "$secret" | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"], end="")'
-}
-push_with_token(){
-  local ref="$1" token askpass rc
-  token="$(github_token)" || return 1
-  [[ -n "$token" ]] || return 1
-  askpass="$(mktemp /tmp/fetch-model.git-askpass.XXXXXX)"
-  printf '#!/bin/sh\nprintf %%s "${GIT_ASKPASS_TOKEN}"\n' > "$askpass"
-  chmod 700 "$askpass"
-  set +e
-  GIT_ASKPASS="$askpass" GIT_ASKPASS_TOKEN="$token" GIT_TERMINAL_PROMPT=0 git -C "$ROOT" push origin "$ref:$ref"
-  rc=$?
-  set -e
-  rm -f "$askpass"
-  unset token
-  return "$rc"
-}
-cleanup_commit_artifacts(){
-  rm -f -- "${COMMIT_INDEX:-}" "${CONFIG_SNAPSHOT:-}" "${INVENTORY_SNAPSHOT:-}" "${SIDECAR_SNAPSHOT:-}"
-}
-commit_model_update(){
-  local config_blob inventory_blob sidecar_blob base ref tree commit
-  config_blob="$(git -C "$ROOT" hash-object -w -- "$CONFIG_SNAPSHOT")"
-  inventory_blob="$(git -C "$ROOT" hash-object -w -- "$INVENTORY_SNAPSHOT")"
-  sidecar_blob="$(git -C "$ROOT" hash-object -w -- "$SIDECAR_SNAPSHOT")"
-  ref="$(git -C "$ROOT" symbolic-ref -q HEAD)" || { cleanup_commit_artifacts; die "automatic commit requires a checked-out branch"; }
-  base="$(git -C "$ROOT" rev-parse "$ref")"
-  COMMIT_INDEX="$(mktemp "$ROOT/.git/fetch-model.index.XXXXXX")"
-  rm -f -- "$COMMIT_INDEX"
-  GIT_INDEX_FILE="$COMMIT_INDEX" git -C "$ROOT" read-tree "$base"
-  GIT_INDEX_FILE="$COMMIT_INDEX" git -C "$ROOT" update-index --add --cacheinfo "100644,$config_blob,$(basename "$CONFIG")"
-  GIT_INDEX_FILE="$COMMIT_INDEX" git -C "$ROOT" update-index --add --cacheinfo "100644,$inventory_blob,$(basename "$INVENTORY_PATH")"
-  GIT_INDEX_FILE="$COMMIT_INDEX" git -C "$ROOT" update-index --add --cacheinfo "100644,$sidecar_blob,model-metadata/$NAME.json"
-  tree="$(GIT_INDEX_FILE="$COMMIT_INDEX" git -C "$ROOT" write-tree)"
-  commit="$(git -C "$ROOT" commit-tree "$tree" -p "$base" -m "feat(models): add $NAME")"
-  # The ref update is compare-and-swap protected. A checkout in another process
-  # cannot be made atomic with this branch update using porcelain Git commands;
-  # commit/push the captured branch explicitly rather than whatever HEAD becomes.
-  if ! git -C "$ROOT" update-ref "$ref" "$commit" "$base"; then
-    cleanup_commit_artifacts
-    die "branch changed concurrently; refusing automatic commit"
-  fi
-  COMMIT_REF="$ref"
-  cleanup_commit_artifacts
-}
-set_stage "commit"
-if (( AUTO_PUSH )) && [[ -n "$ROOT" ]]; then
-  git -C "$ROOT" diff --cached --quiet || die "the Git index has staged changes; refusing automatic commit"
-  commit_model_update
-  push_with_token "$COMMIT_REF" || die "commit succeeded locally but GitHub push failed; repair authentication/network and run: git -C \"$ROOT\" push origin \"$COMMIT_REF:$COMMIT_REF\""
-  ok "committed and pushed model configuration and inventory"
-else
-  cleanup_commit_artifacts
-fi
+info 'repository changes are local only; review, commit, and push manually if desired.'
 
 PIPELINE_OK=1
 exit 0

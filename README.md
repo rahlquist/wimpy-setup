@@ -108,8 +108,9 @@ curl http://wimpy.home.lan:8080/v1/models   # verify wimpy reachable
   re-tune for tighter VRAM, smoke-test the count per hardware/context.
 - `fetch-model.sh` — multi-source GGUF acquisition pipeline. Accepts a
   Hugging Face paste, a direct HTTP(S) URL, or a local `.gguf` path. Covers
-  inspection, metadata validation, GPU smoke-test, registration, and automatic
-  commit+push. See "Adding a model" below.
+  inspection, metadata validation, GPU smoke-test, and registration. It does
+  not commit or push repository changes; review those changes manually. See
+  "Adding a model" below.
 - `model-inventory.html` — generated tracked inventory: llama-swap alias,
   filename, added date, GGUF architecture/native context, description, and
   effective custom llama.cpp parameters.
@@ -142,7 +143,6 @@ metadata confirms the model is MoE. Rejected for dense models.
 | `--keep-source` | Retain original local file after pipeline success (default: deleted) |
 | `--no-smoke` | Skip GPU smoke test |
 | `--no-register` | Download and inspect only, skip config registration |
-| `--no-push` | Disable automatic git commit and push after registration |
 
 **Error recovery:** Mid-pipeline failures (inspect/validate/smoke/register) write
 a `*.dossier.md` containing the stage, partial state, and a ready-to-run resume
