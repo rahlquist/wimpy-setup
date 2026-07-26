@@ -124,6 +124,13 @@ groups:
       - "ling-mini-2-q6-cuda"
 
 models:
+  "qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-low-mtp-q6-k":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-LOW-MTP-Q6_K.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
   "ornith-1-0-35b-ud-q4-k-xl":
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
