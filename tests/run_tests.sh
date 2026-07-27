@@ -39,6 +39,7 @@ run_fetch() {
     MODELS_DIR="$td/models" \
     SMOKE_PORT=$((19191 + (RANDOM % 1000))) \
     DEPLOY_HELPER=/bin/false \
+    HF_STUB_LOG="$td/hf.calls" \
     PATH="$STUBS:$PATH" \
     bash "$SCRIPT" "$@"
 }
@@ -91,6 +92,14 @@ rm -rf "$td"
 td="$(make_td)"; rc=0; OUT="$(HF_STUB_FIXTURE=moe run_fetch "$td" -y 'hf://owner/repo/moe.gguf 4' 2>&1)" || rc=$?
 check_exit "T3: MoE + --n-cpu-moe 4 exits 0" 0 "$rc"
 check_contains "T3: cpu-moe in output" "cpu" "$OUT"
+rm -rf "$td"
+
+# T3b: Nested HF file paths use the remote path for hf but a flat local name.
+td="$(make_td)"; rc=0; OUT="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/quantize/gguf/model.gguf' 2>&1)" || rc=$?
+check_exit "T3b: nested HF path exits 0" 0 "$rc"
+grep -qF 'download owner/repo quantize/gguf/model.gguf' "$td/hf.calls" && ok "T3b: nested remote path passed to hf" || fail "T3b: nested remote path not passed to hf"
+[[ -f "$td/models/model.gguf" ]] && ok "T3b: flat local model file present" || fail "T3b: flat local model file missing"
+[[ ! -e "$td/models/quantize/gguf/model.gguf" ]] && ok "T3b: nested local path not created" || fail "T3b: nested local path was created"
 rm -rf "$td"
 
 # T4: Duplicate registration (same spec twice)

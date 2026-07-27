@@ -122,7 +122,7 @@ DEPLOY_HELPER="${DEPLOY_HELPER:-/usr/local/sbin/llama-swap-deploy}"
 
 NAME=""; CTX="64000"; CTX_REQUESTED=""; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1; DO_DEPLOY=1
 SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""
-KEEP_SOURCE=0; SOURCE_COPIED=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""
+KEEP_SOURCE=0; SOURCE_COPIED=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""; REMOTE_FILE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -n) NAME="${2:-}"; shift 2;;
@@ -175,6 +175,7 @@ classify_input() {
     SRC_CLASS="local"
     LOCAL_SRC="$(cd "$(dirname "$value")" && pwd)/$(basename "$value")"
     FILE="$(basename "$value")"
+    REMOTE_FILE="$FILE"
     OWNER="local"; REPO="local"
     [[ "$FILE" == *.gguf ]] || return 1
     return 0
@@ -189,6 +190,7 @@ classify_input() {
     URL="$value"
     local base="${value%%\?*}"; base="${base%%#*}"
     FILE="${base##*/}"
+    REMOTE_FILE="$FILE"
     [[ "$FILE" == *.gguf ]] || return 1
     OWNER="url"; REPO="$(printf '%s' "$URL" | sed -E 's#https?://##; s#/.*$##; s/\./-/g')"
     return 0
@@ -204,8 +206,9 @@ classify_input() {
   value="${value/\/resolve\/main\//\/}"
   value="${value/\/blob\/main\//\/}"
   [[ "$value" =~ ^([^/[:space:]]+)/([^/[:space:]]+)/(.+\.gguf)$ ]] || return 1
-  OWNER="${BASH_REMATCH[1]}"; REPO="${BASH_REMATCH[2]}"; FILE="${BASH_REMATCH[3]}"
-  [[ "$FILE" != /* && "$FILE" != *".."* ]] || return 1
+  OWNER="${BASH_REMATCH[1]}"; REPO="${BASH_REMATCH[2]}"; REMOTE_FILE="${BASH_REMATCH[3]}"
+  [[ "$REMOTE_FILE" != /* && "$REMOTE_FILE" != *".."* ]] || return 1
+  FILE="${REMOTE_FILE##*/}"
   return 0
 }
 # Dep checks: hf only for hf class, curl only for url class
@@ -294,10 +297,10 @@ acquire_model(){
   case "$SRC_CLASS" in
     hf)
       for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
-        if hf download "$REPO_ID" "$FILE" --local-dir "$workdir" &&
-           [[ -f "$workdir/$FILE" ]]; then
-          candidate="$workdir/$FILE"; break; fi
-        rm -f -- "$workdir/$FILE"
+        if hf download "$REPO_ID" "$REMOTE_FILE" --local-dir "$workdir" &&
+           [[ -f "$workdir/$REMOTE_FILE" ]]; then
+          candidate="$workdir/$REMOTE_FILE"; break; fi
+        rm -f -- "$workdir/$REMOTE_FILE"
         if (( attempt < MAX_RETRIES )); then sleep "$attempt"; fi
       done ;;
     url)
