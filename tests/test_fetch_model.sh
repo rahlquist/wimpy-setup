@@ -91,6 +91,25 @@ PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$T
   cat "$TMP/unquoted.out" >&2; fail 'unquoted fetch-model invocation failed'; }
 assert_contains "$TMP/config-unquoted.yaml" '--n-cpu-moe 21'
 
+# Native context below Hermes minimum: do not reject; force the 64000 compatibility context.
+python3 - "$TMP/model-low.gguf" <<'PYLOW'
+import struct, sys
+def s(v):
+ b=v.encode(); return struct.pack('<Q',len(b))+b
+fields=[('general.architecture',8,'qwen3'),('qwen3.context_length',4,4096),('general.description',8,'Low context test model')]
+out=bytearray(b'GGUF'+struct.pack('<IQQ',3,0,len(fields)))
+for k,t,v in fields:
+ out += s(k)+struct.pack('<I',t)
+ out += s(v) if t == 8 else struct.pack('<I',v)
+open(sys.argv[1],'wb').write(out)
+PYLOW
+cp "$TMP/config-base.yaml" "$TMP/config-low.yaml"
+FAKE_GGUF="$TMP/model-low.gguf" HF_CALLS="$TMP/hf-low.calls" \
+PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config-low.yaml" MODELS_DIR="$TMP/models-low" MODEL_METADATA_DIR="$TMP/metadata-low" INVENTORY_PATH="$TMP/inventory-low.html" \
+  DOSSIER_DIR="$TMP" "$SCRIPT" -y --no-smoke "$TMP/model-low.gguf" > "$TMP/low.out" 2>&1 || { cat "$TMP/low.out" >&2; fail 'low-context model was rejected'; }
+assert_contains "$TMP/config-low.yaml" '--ctx-size 64000'
+assert_contains "$TMP/low.out" 'using explicit ctx=64000'
+
 # If inventory rendering fails, the earlier config registration must be rolled back.
 cp "$TMP/config-base.yaml" "$TMP/config-rollback.yaml"
 if FAKE_GGUF="$TMP/model-Q5_K_M.gguf" HF_CALLS="$TMP/hf-rollback.calls" \

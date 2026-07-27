@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Root-owned helper for atomically deploying the validated llama-swap config.
+# Installed at /usr/local/sbin/llama-swap-deploy and callable only through
+# the narrow sudoers rule installed by install-llama-swap-autodeploy.sh.
+set -euo pipefail
+
+SOURCE_CONFIG=/home/rahlquist/Downloads/wimpy-setup/llama-swap-config.yaml
+LIVE_CONFIG=/etc/llama-swap/config.yaml
+API_URL=http://127.0.0.1:8080/v1/models
+RELOAD_TIMEOUT=60
+
+err() { printf '[ERR] %s\n' "$*" >&2; }
+ok() { printf '[OK]  %s\n' "$*"; }
+die() { err "$*"; exit 1; }
+
+[[ "${EUID:-$(id -u)}" -eq 0 ]] || die 'must run as root'
+[[ -f "$SOURCE_CONFIG" ]] || die "source config missing: $SOURCE_CONFIG"
+[[ -f "$LIVE_CONFIG" ]] || die "live config missing: $LIVE_CONFIG"
+command -v install >/dev/null || die 'install command missing'
+[[ -x /usr/bin/curl ]] || die '/usr/bin/curl missing'
+[[ -x /usr/bin/python3 ]] || die '/usr/bin/python3 missing'
+
+stamp="$(date +%Y%m%d%H%M%S)"
+backup="$(mktemp "${LIVE_CONFIG}.${stamp}.autodeploy.XXXXXX.bak")"
+tmp="$(mktemp "${LIVE_CONFIG}.autodeploy.XXXXXX")"
+api_tmp="$(mktemp /tmp/llama-swap-deploy-api.XXXXXX)"
+api_err="${api_tmp}.err"
+cleanup() {
+  rm -f -- "$tmp" "$api_tmp" "$api_err"
+}
+trap cleanup EXIT INT TERM
+
+api_matches_config() {
+  local config="$1" api_json="$2"
+  /usr/bin/python3 - "$config" "$api_json" <<'PY'
+import json
+import re
+import sys
+
+config_path, api_path = sys.argv[1:]
+text = open(config_path, encoding='utf-8').read()
+lines = text.splitlines()
+models = []
+in_models = False
+for line in lines:
+    if re.match(r'^models:\s*(?:#.*)?$', line):
+        in_models = True
+        continue
+    if in_models and line and not line.startswith((' ', '\t')):
+        break
+    if in_models:
+        match = re.match(r'^\s{2}["\']([^"\']+)["\']\s*:\s*$', line)
+        if match:
+            models.append(match.group(1))
+if not models:
+    raise SystemExit('source config has no model entries')
+try:
+    payload = json.load(open(api_path, encoding='utf-8'))
+except Exception as exc:
+    raise SystemExit(f'cannot parse llama-swap API response: {exc}')
+actual = {row.get('id') for row in payload.get('data', []) if isinstance(row, dict)}
+missing = sorted(set(models) - actual)
+if missing:
+    raise SystemExit('API missing model IDs: ' + ', '.join(missing))
+PY
+}
+
+install -o root -g root -m 0644 "$SOURCE_CONFIG" "$tmp"
+cp -p -- "$LIVE_CONFIG" "$backup"
+mv -f -- "$tmp" "$LIVE_CONFIG"
+ok "installed live config: $LIVE_CONFIG"
+
+last_error='no successful API validation'
+for ((i=1; i<=RELOAD_TIMEOUT; i++)); do
+  if /usr/bin/curl -fsS --max-time 5 "$API_URL" >"$api_tmp" 2>/dev/null; then
+    if api_matches_config "$SOURCE_CONFIG" "$api_tmp" >/dev/null 2>"$api_err"; then
+      ok "llama-swap reloaded the deployed config"
+      ok "backup retained: $backup"
+      exit 0
+    fi
+    last_error="$(tr '\n' ' ' < "$api_err")"
+  else
+    last_error='llama-swap API not reachable'
+  fi
+  sleep 1
+done
+
+err "live config validation failed after ${RELOAD_TIMEOUT}s: $last_error"
+err "rolling back to: $backup"
+install -o root -g root -m 0644 "$backup" "$tmp"
+mv -f -- "$tmp" "$LIVE_CONFIG"
+for ((i=1; i<=RELOAD_TIMEOUT; i++)); do
+  if /usr/bin/curl -fsS --max-time 5 "$API_URL" >"$api_tmp" 2>/dev/null &&
+     api_matches_config "$backup" "$api_tmp" >/dev/null 2>"$api_err"; then
+    die 'automatic deployment rolled back the live config'
+  fi
+  sleep 1
+done
+die 'automatic deployment rolled back the live config; rollback API verification timed out'

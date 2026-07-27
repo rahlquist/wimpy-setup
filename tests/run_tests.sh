@@ -38,6 +38,7 @@ run_fetch() {
     INVENTORY_PATH="$td/model-inventory.html" \
     MODELS_DIR="$td/models" \
     SMOKE_PORT=$((19191 + (RANDOM % 1000))) \
+    DEPLOY_HELPER=/bin/false \
     PATH="$STUBS:$PATH" \
     bash "$SCRIPT" "$@"
 }
@@ -95,16 +96,18 @@ rm -rf "$td"
 # T4: Duplicate registration (same spec twice)
 td="$(make_td)"
 run_fetch "$td" -y 'hf://owner/repo/model.gguf' >/dev/null 2>&1 || true
-rc=0; OUT="$(run_fetch "$td" -y 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
+rc=0; OUT="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
 # Script now idempotent — consistent re-registration exits 0
 check_exit "T4: duplicate exits 0 (idempotent)" 0 "$rc"
 check_contains "T4: sidecar already exists msg" "already registered" "$OUT"
 rm -rf "$td"
 
-# T5: Low native context (<65536) should die
-td="$(make_td)"; rc=0; OUT="$(HF_STUB_FIXTURE=lowctx run_fetch "$td" -y 'hf://owner/repo/low.gguf' 2>&1)" || rc=$?
-check_exit "T5: low ctx exits non-zero" 1 "$rc"
-check_contains "T5: native context error" "native context" "$OUT"
+# T5: Low native context should be accepted and forced to the Hermes 64000 compatibility context
+td="$(make_td)"; rc=0; OUT="$(HF_STUB_FIXTURE=lowctx run_fetch "$td" -y --no-deploy 'hf://owner/repo/low.gguf' 2>&1)" || rc=$?
+check_exit "T5: low ctx exits 0" 0 "$rc"
+check_contains "T5: native context detected" "native context" "$OUT"
+check_contains "T5: Hermes compatibility context" "64000" "$OUT"
+grep -qF -- '--ctx-size 64000' "$td/llama-swap-config.yaml" && ok "T5: low ctx registered with --ctx-size 64000" || fail "T5: low ctx missing --ctx-size 64000"
 rm -rf "$td"
 
 # T6: Non-MoE model + --n-cpu-moe dies
@@ -127,7 +130,7 @@ check_contains "T8: file shown" "model.gguf" "$OUT"
 rm -rf "$td"
 
 # T9: Full smoke+register with stub server (port collision handled by randomized SMOKE_PORT)
-td="$(make_td)"; rc=0; OUT="$(run_fetch "$td" -y 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
+td="$(make_td)"; rc=0; OUT="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
 check_exit "T9: full smoke+register exits 0" 0 "$rc"
 check_contains "T9: healthy message" "healthy" "$OUT"
 check_contains "T9: registered message" "registered" "$OUT"
@@ -174,13 +177,14 @@ rm -rf "$td"
 
 # T15: Mid-stage failure dossier (smoke failure) — verify STAGE + resume in content
 td="$(make_td)"; rc=0
-OUT="$(SMOKE_TRIES=3 LLAMA_SERVER_HEALTH_FAIL=1 run_fetch "$td" -y 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
+OUT="$(SMOKE_TRIES=3 LLAMA_SERVER_HEALTH_FAIL=1 run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
 check_exit "T15: smoke failure exits non-zero" 1 "$rc"
 check_contains "T15: dossier msg" "Wrote recovery dossier" "$OUT"
 dossier="$(ls "$td"/fetch-model-*.dossier.md 2>/dev/null | head -1 || true)"
 [[ -f "$dossier" ]] && ok "T15: dossier file created" || fail "T15: no dossier file found"
 grep -qF 'STAGE:' "$dossier" && ok "T15: dossier contains STAGE" || fail "T15: dossier missing STAGE field"
 grep -qF '## Resume command' "$dossier" && ok "T15: dossier has resume command" || fail "T15: dossier missing resume section"
+grep -qF '## Smoke test log' "$dossier" && ok "T15: dossier captures smoke log" || fail "T15: dossier missing smoke log"
 rm -rf "$td"
 
 # T16: No dossier on classify failure
@@ -193,7 +197,7 @@ rm -rf "$td"
 td="$(make_td)"; mkdir -p "$td/model-metadata"
 printf '{"filename":"different.gguf","repository":"other/repo"}\n' > "$td/model-metadata/model.json"
 config_hash="$(md5sum "$td/llama-swap-config.yaml" 2>/dev/null | awk '{print $1}')"
-rc=0; OUT="$(run_fetch "$td" -y 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
+rc=0; OUT="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
 check_exit "T17: name collision exits 1" 1 "$rc"
 check_contains "T17: name collision msg" "name collision" "$OUT"
 [[ -f "$td/models/model.gguf" ]] && ok "T17: model file still present" || fail "T17: model file removed"
@@ -203,9 +207,9 @@ rm -rf "$td"
 
 # T18: Idempotent re-registration
 td="$(make_td)"; rc=0
-OUT="$(run_fetch "$td" -y 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
+OUT="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
 check_exit "T18: first registration exits 0" 0 "$rc"
-rc2=0; OUT2="$(run_fetch "$td" -y 'hf://owner/repo/model.gguf' 2>&1)" || rc2=$?
+rc2=0; OUT2="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc2=$?
 check_exit "T18: second registration exits 0" 0 "$rc2"
 check_contains "T18: already registered msg" "already registered" "$OUT2"
 rm -rf "$td"

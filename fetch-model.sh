@@ -13,8 +13,8 @@
 # evals a pasted command and never guesses a CPU-MoE layer count.
 #
 # Defaults are deliberate:
-#   * all registered models remain at 65536 context (the Hermes minimum), even
-#     when a model's native GGUF context is higher;
+#   * native GGUF context is used when it is >= 64000; smaller native contexts
+#     receive an explicit --ctx-size 64000 for Hermes compatibility;
 #   * all entries use a downloaded local --model path; never llama.cpp -hf;
 #   * CPU-MoE offload is absent unless the user explicitly supplies N;
 #   * local source files are removed after a successful pipeline; pass
@@ -70,12 +70,24 @@ recover_dossier(){
     echo "- acquired model file present: $([[ -f "${MODEL_PATH:-}" ]] && echo yes || echo no)"
     echo "- config rolled back: ${ROLLED_BACK:+yes}${ROLLED_BACK:-no}"
     echo
+    echo "## Smoke test log"
+    if [[ -n "${SMOKE_LOG:-}" && -f "$SMOKE_LOG" ]]; then
+      echo "- log: $SMOKE_LOG"
+      echo
+      echo '```'
+      tail -40 "$SMOKE_LOG"
+      echo '```'
+    else
+      echo "- (no smoke log captured)"
+    fi
+    echo
     echo "## Resume command"
     local resume="cd \"$(pwd)\" && ./fetch-model.sh"
     local rspec; rspec="$(printf '%q' "${SPEC:-}")"; resume+=" ${rspec}"
     [[ -n "${CPU_MOE:-}" ]] && resume+=" --n-cpu-moe $CPU_MOE"
     (( ASSUME_YES )) && resume+=" -y"
     (( DO_SMOKE )) || resume+=" --no-smoke"
+    (( DO_DEPLOY )) || resume+=" --no-deploy"
     echo "  $resume"
     echo
     echo "## Prompt to paste to Hermes"
@@ -91,6 +103,8 @@ recover_dossier(){
 }
 
 PIPELINE_OK=0
+SMOKE_LOG=""
+SMOKE_FAILED=0
 cleanup_source(){
   [[ "$SRC_CLASS" == "local" && "$SOURCE_COPIED" == "1" && "$KEEP_SOURCE" == "0" ]] || return 0
   [[ -f "$LOCAL_SRC" ]] || return 0
@@ -103,20 +117,23 @@ GGUF_INSPECTOR="${GGUF_INSPECTOR:-$SCRIPT_DIR/tools/gguf_metadata.py}"
 INVENTORY_RENDERER="${INVENTORY_RENDERER:-$SCRIPT_DIR/tools/render_model_inventory.py}"
 INVENTORY_PATH="${INVENTORY_PATH:-$SCRIPT_DIR/model-inventory.html}"
 METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
+DEPLOY_SOURCE_CONFIG="${DEPLOY_SOURCE_CONFIG:-$SCRIPT_DIR/llama-swap-config.yaml}"
+DEPLOY_HELPER="${DEPLOY_HELPER:-/usr/local/sbin/llama-swap-deploy}"
 
-NAME=""; CTX="65536"; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1
+NAME=""; CTX="64000"; CTX_REQUESTED=""; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1; DO_DEPLOY=1
 SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""
 KEEP_SOURCE=0; SOURCE_COPIED=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -n) NAME="${2:-}"; shift 2;;
-    -c) CTX="${2:-}"; shift 2;;
+    -c) CTX="${2:-}"; CTX_REQUESTED=1; shift 2;;
     -d) DEVICE_OVERRIDE="${2:-}"; shift 2;;
     --n-cpu-moe) CPU_MOE="${2:-}"; shift 2;;
     -y) ASSUME_YES=1; shift;;
     --no-smoke) DO_SMOKE=0; shift;;
     --keep-source) KEEP_SOURCE=1; shift;;
     --no-register) DO_REGISTER=0; shift;;
+    --no-deploy) DO_DEPLOY=0; shift;;
     -h|--help)
       sed -n '2,21p' "$0"
       exit 0;;
@@ -142,7 +159,7 @@ if [[ "$SPEC" =~ ^(.*\.gguf)[[:space:]]+([0-9]+)$ ]]; then
   SPEC="${BASH_REMATCH[1]}"
   CPU_MOE="${BASH_REMATCH[2]}"
 fi
-[[ "$CTX" =~ ^[0-9]+$ ]] && (( CTX >= 65536 )) || die "--ctx-size must be an integer >= 65536"
+[[ "$CTX" =~ ^[0-9]+$ ]] && (( CTX >= 64000 )) || die "--ctx-size must be an integer >= 64000"
 [[ -z "$CPU_MOE" || "$CPU_MOE" =~ ^[0-9]+$ ]] || die "--n-cpu-moe must be a non-negative integer"
 command -v python3 >/dev/null || die "python3 is required"
 [[ -f "$GGUF_INSPECTOR" ]] || die "GGUF inspector missing: $GGUF_INSPECTOR"
@@ -327,12 +344,24 @@ PY
 )"
 set_stage "validate"
 [[ "$NATIVE_CTX" =~ ^[0-9]+$ ]] || die "GGUF has no usable native context metadata"
-(( NATIVE_CTX >= 65536 )) || die "GGUF native context is $NATIVE_CTX, below required 65536; config untouched."
-if (( CTX > NATIVE_CTX )); then
-  die "requested context $CTX exceeds GGUF native context $NATIVE_CTX; config untouched."
-fi
-if (( CTX < NATIVE_CTX )); then
-  info "GGUF native context: $NATIVE_CTX; retaining project default ctx=$CTX. Use -c $NATIVE_CTX only after testing that allocation."
+# An explicit -c override always wins. Without it:
+#   native < 64000 -> force 64000 (Hermes compatibility)
+#   native >= 64000 -> omit --ctx-size, use the model's native context
+if [[ -n "${CTX_REQUESTED:-}" ]]; then
+  EFFECTIVE_CTX="$CTX"
+  CTX_MODE="explicit override (-c $CTX)"
+  if (( NATIVE_CTX >= 64000 )) && (( CTX > NATIVE_CTX )); then
+    die "requested context $CTX exceeds GGUF native context $NATIVE_CTX; config untouched."
+  fi
+  info "GGUF native context: $NATIVE_CTX; using explicit ctx=$EFFECTIVE_CTX (override)."
+elif (( NATIVE_CTX < 64000 )); then
+  EFFECTIVE_CTX="$CTX"
+  CTX_MODE="hermes-compatibility override"
+  info "GGUF native context: $NATIVE_CTX; using explicit ctx=$EFFECTIVE_CTX for Hermes compatibility."
+else
+  EFFECTIVE_CTX="$NATIVE_CTX"
+  CTX_MODE="native model context"
+  info "GGUF native context: $NATIVE_CTX; omitting --ctx-size so llama.cpp uses the model context."
 fi
 printf '  │ architecture : %s\n  │ native ctx   : %s\n' "$ARCH" "$NATIVE_CTX"
 if (( EXPERTS > 0 )); then
@@ -352,9 +381,16 @@ fi
 
 MOE_ARG=()
 [[ -n "$CPU_MOE" ]] && MOE_ARG=(--n-cpu-moe "$CPU_MOE")
+CTX_ARG=()
+# Add --ctx-size when the model needs the Hermes-compatibility floor (native < 64000)
+# OR when the operator explicitly requested a context via -c.
+if (( NATIVE_CTX < 64000 )) || [[ -n "${CTX_REQUESTED:-}" ]]; then
+  CTX_ARG=(--ctx-size "$EFFECTIVE_CTX")
+fi
+CTX_TEXT="${CTX_ARG[*]:-}"
 CMD_LINES=(
   "$LLAMA_SERVER --model $MODEL_PATH"
-  "--n-gpu-layers 99 ${MOE_ARG[*]:-} --device $GPU_DEVICE --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size $CTX --jinja"
+  "--n-gpu-layers 99 ${MOE_ARG[*]:-} --device $GPU_DEVICE --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 $CTX_TEXT --jinja"
   '--host 0.0.0.0 --port ${PORT} --metrics'
 )
 # Remove the harmless double space when MoE offload is not configured.
@@ -366,7 +402,8 @@ cleanup(){
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
   fi
-  [[ -n "$SMOKE_LOG" ]] && rm -f "$SMOKE_LOG"
+  # Do NOT delete SMOKE_LOG here; on failure it is preserved for the dossier.
+
   if (( PIPELINE_OK )); then
     cleanup_source
   fi
@@ -375,9 +412,9 @@ cleanup(){
 trap cleanup EXIT INT TERM
 smoke_test(){
   SMOKE_LOG="$(mktemp /tmp/fetch-model.smoke.XXXXXX.log)"
-  info "smoke test: ctx=$CTX device=$GPU_DEVICE cpu-moe=${CPU_MOE:-none}"
+  info "smoke test: ctx=$EFFECTIVE_CTX ($CTX_MODE) device=$GPU_DEVICE cpu-moe=${CPU_MOE:-none}"
   env "${GPU_ENV_VAR}=${GPU_PIN_VALUE}" "$LLAMA_SERVER" --model "$MODEL_PATH" --n-gpu-layers 99 "${MOE_ARG[@]}" \
-    --device "$GPU_DEVICE" --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size "$CTX" --jinja \
+    --device "$GPU_DEVICE" --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 "${CTX_ARG[@]}" --jinja \
     --host 127.0.0.1 --port "$SMOKE_PORT" >"$SMOKE_LOG" 2>&1 &
   SERVER_PID=$!
   local i code ready=0
@@ -388,7 +425,8 @@ smoke_test(){
     sleep 1
   done
   if (( ! ready )); then
-    err "smoke test did not become healthy at ctx=$CTX"
+    SMOKE_FAILED=1
+    err "smoke test did not become healthy at ctx=$EFFECTIVE_CTX"
     grep -iE 'out of memory|hipMalloc|cudaMalloc|failed to allocate|unknown model architecture|error loading model|device.*not found|no devices' "$SMOKE_LOG" | tail -10 >&2 || true
     return 1
   fi
@@ -412,9 +450,9 @@ PY
     err "smoke test health endpoint passed but completion probe failed"
     return 1
   fi
-  ok "loaded, generated, and healthy at ctx=$CTX on $GPU_DEVICE"
+  ok "loaded, generated, and healthy at ctx=$EFFECTIVE_CTX on $GPU_DEVICE"
   if [[ -n "$CPU_MOE" ]]; then info "intentional MoE expert CPU placement: first $CPU_MOE blocks"; fi
-  cleanup; SERVER_PID=""; SMOKE_LOG=""
+  cleanup; SERVER_PID=""; rm -f -- "$SMOKE_LOG"; SMOKE_LOG=""
 }
 set_stage "smoke"
 if (( DO_SMOKE )); then
@@ -423,6 +461,26 @@ if (( DO_SMOKE )); then
 else
   warn 'smoke test skipped.'
 fi
+
+deploy_live_config(){
+  if (( ! DO_DEPLOY )); then
+    info 'automatic deployment skipped (--no-deploy).'
+    return 0
+  fi
+  if (( ! DO_SMOKE )); then
+    info 'automatic deployment skipped because the smoke test was disabled.'
+    return 0
+  fi
+  if [[ "$CONFIG" != "$DEPLOY_SOURCE_CONFIG" ]]; then
+    info "automatic deployment skipped: config is not the canonical source ($CONFIG)."
+    return 0
+  fi
+  [[ -x "$DEPLOY_HELPER" ]] || die "automatic deployment helper missing: $DEPLOY_HELPER (run sudo $SCRIPT_DIR/install-llama-swap-autodeploy.sh)"
+  command -v sudo >/dev/null || die "sudo is required for automatic deployment"
+  set_stage "deploy"
+  sudo -n "$DEPLOY_HELPER" || die "automatic deployment failed; live config was not verified"
+  ok "deployed live llama-swap config and verified its API model list"
+}
 
 set_stage "register"
 (( DO_REGISTER )) || { PIPELINE_OK=1; info "registration skipped. id would be: $NAME"; exit 0; }
@@ -440,7 +498,13 @@ PY
   sidecar_rc=$?
   set -e
   case "$sidecar_rc" in
-    0) PIPELINE_OK=1; warn "metadata sidecar already exists: $SIDECAR (consistent); nothing to do."; ok "model already registered as '$NAME'."; exit 0;;
+    0)
+      warn "metadata sidecar already exists: $SIDECAR (consistent); nothing to do."
+      deploy_live_config
+      ok "model already registered as '$NAME'."
+      PIPELINE_OK=1
+      exit 0
+      ;;
     2) die "name collision: '$NAME' already registered for a different model ($SIDECAR)";;
     *) die "cannot read existing sidecar: $SIDECAR";;
   esac
@@ -505,7 +569,7 @@ esac
 # avoids putting untracked sidecars in a model cache, and retains inspection
 # evidence even when a model is moved or re-downloaded.
 set +e
-python3 - "$SIDECAR_TMP" "$NAME" "$REPO_ID" "$FILE" "$MODEL_PATH" "$CTX" "$NATIVE_CTX" "$CPU_MOE" "$METADATA_JSON" "$DESCRIPTION" <<'PY'
+python3 - "$SIDECAR_TMP" "$NAME" "$REPO_ID" "$FILE" "$MODEL_PATH" "$EFFECTIVE_CTX" "$NATIVE_CTX" "$CPU_MOE" "$METADATA_JSON" "$DESCRIPTION" <<'PY'
 import json,sys,datetime
 out,alias,repo,file,path,ctx,native,cpu,metadata,description=sys.argv[1:]
 m=json.loads(metadata)
@@ -538,9 +602,7 @@ rm -f -- "$CONFIG_BACKUP"
 ok "wrote metadata sidecar: $SIDECAR"
 ok "updated model inventory: $INVENTORY_PATH"
 
-if [[ "$CONFIG" != /etc/llama-swap/config.yaml ]]; then
-  info 'To deploy: first back up /etc/llama-swap/config.yaml, then copy this repository config there. llama-swap watches config changes; no restart is needed.'
-fi
+deploy_live_config
 
 info 'repository changes are local only; review, commit, and push manually if desired.'
 
