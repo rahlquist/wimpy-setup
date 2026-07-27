@@ -124,6 +124,41 @@ groups:
       - "ling-mini-2-q6-cuda"
 
 models:
+  "model-f16":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/model-f16.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
+  "flux2-klein-9b-uncensored-f16":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/flux2-klein-9b-uncensored-f16.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 64000 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
+  "tifa-deepsex-14b-cot-q4-k-m":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Tifa-Deepsex-14b-CoT-Q4_K_M.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
+  "qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-q4-k-s":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-Q4_K_S.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
+  "qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-low-mtp-q6-k":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-LOW-MTP-Q6_K.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
   "ornith-1-0-35b-ud-q4-k-xl":
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
