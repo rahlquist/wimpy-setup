@@ -15,14 +15,15 @@ set -euo pipefail
 [[ "$1" == download ]]
 repo="$2"; file="$3"
 [[ "$repo" == "owner/repo-GGUF" ]]
-[[ "$file" == "model-Q5_K_M.gguf" ]]
+[[ "$file" == "model-Q5_K_M.gguf" || "$file" == "quantize/gguf/model-Q5_K_M.gguf" ]]
 local_dir=""
 shift 3
 while [[ $# -gt 0 ]]; do
   case "$1" in --local-dir) local_dir="$2"; shift 2;; *) shift;; esac
 done
-mkdir -p "$local_dir"
-cp "$FAKE_GGUF" "$local_dir/$file"
+dest="$local_dir/$file"
+mkdir -p "$(dirname "$dest")"
+cp "$FAKE_GGUF" "$dest"
 printf '%s\n' "$repo/$file" >> "$HF_CALLS"
 HF
 chmod +x "$TMP/bin/hf"
@@ -90,6 +91,47 @@ PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$T
   DOSSIER_DIR="$TMP" "$SCRIPT" -y --no-smoke hf download hf://owner/repo-GGUF/model-Q5_K_M.gguf 21 > "$TMP/unquoted.out" 2>&1 || {
   cat "$TMP/unquoted.out" >&2; fail 'unquoted fetch-model invocation failed'; }
 assert_contains "$TMP/config-unquoted.yaml" '--n-cpu-moe 21'
+
+# Nested HF repository paths must use the remote path for `hf` but only the
+# basename for the local cache path, model ID, and dossier filename.
+cp "$TMP/config-base.yaml" "$TMP/config-nested.yaml"
+FAKE_GGUF="$TMP/model-Q5_K_M.gguf" HF_CALLS="$TMP/hf-nested.calls" \
+PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config-nested.yaml" MODELS_DIR="$TMP/models-nested" MODEL_METADATA_DIR="$TMP/metadata-nested" INVENTORY_PATH="$TMP/generated-nested-inventory.html" \
+  DOSSIER_DIR="$TMP" "$SCRIPT" -y --no-smoke 'hf download hf://owner/repo-GGUF/quantize/gguf/model-Q5_K_M.gguf 21' > "$TMP/nested.out" 2>&1 || {
+  cat "$TMP/nested.out" >&2; fail 'nested HF path invocation failed'; }
+assert_contains "$TMP/config-nested.yaml" '"model-q5-k-m":'
+assert_contains "$TMP/config-nested.yaml" '--model '
+assert_contains "$TMP/models-nested/model-Q5_K_M.gguf" 'GGUF'
+assert_contains "$TMP/hf-nested.calls" 'owner/repo-GGUF/quantize/gguf/model-Q5_K_M.gguf'
+
+# A nested-path registration failure must still write a flat dossier filename.
+cp "$TMP/config-base.yaml" "$TMP/config-nested-fail.yaml"
+if FAKE_GGUF="$TMP/model-Q5_K_M.gguf" HF_CALLS="$TMP/hf-nested-fail.calls" \
+  PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config-nested-fail.yaml" MODELS_DIR="$TMP/models-nested-fail" MODEL_METADATA_DIR="$TMP/metadata-nested-fail" INVENTORY_PATH="$TMP/generated-nested-fail-inventory.html" INVENTORY_RENDERER=/dev/null \
+  DOSSIER_DIR="$TMP" "$SCRIPT" -y --no-smoke 'hf download hf://owner/repo-GGUF/quantize/gguf/model-Q5_K_M.gguf 21' > "$TMP/nested-fail.out" 2>&1; then
+  fail 'nested path registration failure unexpectedly succeeded'
+fi
+dossier="$(find "$TMP" -maxdepth 1 -type f -name 'fetch-model-model-q5-k-m-*.dossier.md' -print -quit)"
+[[ -n "$dossier" ]] || { cat "$TMP/nested-fail.out" >&2; fail 'nested path dossier was not written at DOSSIER_DIR root'; }
+
+# Native context below Hermes minimum: do not reject; force the 64000 compatibility context.
+python3 - "$TMP/model-low.gguf" <<'PYLOW'
+import struct, sys
+def s(v):
+ b=v.encode(); return struct.pack('<Q',len(b))+b
+fields=[('general.architecture',8,'qwen3'),('qwen3.context_length',4,4096),('general.description',8,'Low context test model')]
+out=bytearray(b'GGUF'+struct.pack('<IQQ',3,0,len(fields)))
+for k,t,v in fields:
+ out += s(k)+struct.pack('<I',t)
+ out += s(v) if t == 8 else struct.pack('<I',v)
+open(sys.argv[1],'wb').write(out)
+PYLOW
+cp "$TMP/config-base.yaml" "$TMP/config-low.yaml"
+FAKE_GGUF="$TMP/model-low.gguf" HF_CALLS="$TMP/hf-low.calls" \
+PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config-low.yaml" MODELS_DIR="$TMP/models-low" MODEL_METADATA_DIR="$TMP/metadata-low" INVENTORY_PATH="$TMP/inventory-low.html" \
+  DOSSIER_DIR="$TMP" "$SCRIPT" -y --no-smoke "$TMP/model-low.gguf" > "$TMP/low.out" 2>&1 || { cat "$TMP/low.out" >&2; fail 'low-context model was rejected'; }
+assert_contains "$TMP/config-low.yaml" '--ctx-size 64000'
+assert_contains "$TMP/low.out" 'using explicit ctx=64000'
 
 # If inventory rendering fails, the earlier config registration must be rolled back.
 cp "$TMP/config-base.yaml" "$TMP/config-rollback.yaml"

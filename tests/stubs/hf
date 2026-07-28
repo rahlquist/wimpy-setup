@@ -33,6 +33,7 @@ done
 FIXTURE="${HF_STUB_FIXTURE:-tiny}"
 SRC="$SCRIPT_DIR/${FIXTURE}.gguf"
 [[ -f "$SRC" ]] || { echo "[HF-STUB] fixture not found: $SRC" >&2; exit 1; }
-mkdir -p "$DIR"
-cp "$SRC" "$DIR/$FILE"
+DEST="$DIR/$FILE"
+mkdir -p "$(dirname "$DEST")"
+cp "$SRC" "$DEST"
 echo "[HF-STUB] copied $SRC -> $DIR/$FILE" >> "$LOG"

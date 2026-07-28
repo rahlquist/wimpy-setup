@@ -98,9 +98,13 @@ curl http://wimpy.home.lan:8080/v1/models   # verify wimpy reachable
 
 - Models are added one at a time with `fetch-model.sh` (see below), which
   downloads the GGUF into `~/.cache/llama.cpp/` and registers it in the config.
-- `llama-swap-config.yaml` — deploy to `/etc/llama-swap/config.yaml`. Every
-  model uses an explicit `--model` path to the downloaded file (one consistent
-  method — no `-hf` re-downloads). All at 65536 context (Hermes minimum), with
+- `llama-swap-config.yaml` — canonical source for `/etc/llama-swap/config.yaml`.
+  After a model passes its smoke test and registration, `fetch-model.sh`
+  automatically deploys this config through the narrow root-owned
+  `llama-swap-deploy` helper. Every model uses an explicit `--model` path to
+  the downloaded file (one consistent method — no `-hf` re-downloads). Native
+  GGUF context is used when it is at least 64000; smaller models receive an
+  explicit `--ctx-size 64000` compatibility override, with
   flash attention + Q4 quantized KV cache. Split into two GPU groups (see
   "Dual-GPU" below): the R9700 entries pin by UUID + `--device ROCm0`, the
   `-cuda` entries use `/opt/llama-cuda/bin/llama-server` + `--device CUDA0`. On
@@ -108,9 +112,9 @@ curl http://wimpy.home.lan:8080/v1/models   # verify wimpy reachable
   re-tune for tighter VRAM, smoke-test the count per hardware/context.
 - `fetch-model.sh` — multi-source GGUF acquisition pipeline. Accepts a
   Hugging Face paste, a direct HTTP(S) URL, or a local `.gguf` path. Covers
-  inspection, metadata validation, GPU smoke-test, and registration. It does
-  not commit or push repository changes; review those changes manually. See
-  "Adding a model" below.
+  inspection, metadata validation, GPU smoke-test, registration, and automatic
+  deployment. It does not commit or push repository changes; review those
+  changes manually. See "Adding a model" below.
 - `model-inventory.html` — generated tracked inventory: llama-swap alias,
   filename, added date, GGUF architecture/native context, description, and
   effective custom llama.cpp parameters.
@@ -133,16 +137,31 @@ curl http://wimpy.home.lan:8080/v1/models   # verify wimpy reachable
 A trailing number (e.g. `21`) sets `--n-cpu-moe N` — only accepted when GGUF
 metadata confirms the model is MoE. Rejected for dense models.
 
+**One-time automatic deployment setup:**
+
+Run this once as root on wimpy from the repository directory:
+
+```bash
+sudo ./install-llama-swap-autodeploy.sh
+```
+
+It installs a root-owned, fixed-path deployment helper and a narrow sudoers
+rule. The helper backs up the live config, atomically installs the validated
+repository config, waits for llama-swap to expose every configured model ID,
+and rolls back automatically if live validation fails. The normal fetch path
+deploys automatically after smoke testing; it does not preload the model.
+
 **Key flags:**
 
 | Flag | Effect |
 |------|--------|
 | `-n <id>` | Explicit model id (default: derived from filename) |
-| `-c <ctx>` | Requested context (default and minimum 65536; must not exceed the model's native GGUF context) |
+| `-c <ctx>` | Explicit context override (default/minimum 64000; must not exceed native context when native context is at least 64000) |
 | `-d ROCm0|CUDA0` | Override GPU device detection |
 | `--keep-source` | Retain original local file after pipeline success (default: deleted) |
 | `--no-smoke` | Skip GPU smoke test |
 | `--no-register` | Download and inspect only, skip config registration |
+| `--no-deploy` | Skip automatic live-config deployment |
 
 **Error recovery:** Mid-pipeline failures (inspect/validate/smoke/register) write
 a `*.dossier.md` containing the stage, partial state, and a ready-to-run resume
