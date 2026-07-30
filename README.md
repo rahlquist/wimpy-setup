@@ -26,8 +26,8 @@ the RTX 5060 Ti serving models alongside the R9700 (see "Dual-GPU" below).
 ## Quick start
 
 ```bash
-git clone <this-repo> ~/Downloads/wimpy-setup
-cd ~/Downloads/wimpy-setup
+git clone <this-repo> ~/wimpy-setup
+cd ~/wimpy-setup
 chmod +x *.sh lib/*.sh
 
 bash run-all.sh           # run all steps

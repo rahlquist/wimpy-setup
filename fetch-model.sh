@@ -347,9 +347,18 @@ PY
 )"
 set_stage "validate"
 [[ "$NATIVE_CTX" =~ ^[0-9]+$ ]] || die "GGUF has no usable native context metadata"
-# An explicit -c override always wins. Without it:
-#   native < 64000 -> force 64000 (Hermes compatibility)
-#   native >= 64000 -> omit --ctx-size, use the model's native context
+# Context policy:
+#   * An explicit -c override always wins (validated against native below).
+#   * native < 64000 -> force 64000 (Hermes compatibility).
+#   * native >= 64000 -> use the model's native context, UNLESS the native
+#     context exceeds the GPU's practical VRAM headroom. On wimpy the R9700 is
+#     32 GB; a 1M-context MoE KV cache cannot load within llama-swap's health
+#     window, so we cap at the project's working context (65536). If even that
+#     will not fit, the smoke test announces it and fails with a clear reason.
+#     (This was the exact failure mode for Nero-Tron-30B: registered at native
+#     1,048,576 it timed out the health check; capped at 65536 it loads fine.)
+CTX_CAP=65536
+CTX_CAPPED=0
 if [[ -n "${CTX_REQUESTED:-}" ]]; then
   EFFECTIVE_CTX="$CTX"
   CTX_MODE="explicit override (-c $CTX)"
@@ -361,6 +370,12 @@ elif (( NATIVE_CTX < 64000 )); then
   EFFECTIVE_CTX="$CTX"
   CTX_MODE="hermes-compatibility override"
   info "GGUF native context: $NATIVE_CTX; using explicit ctx=$EFFECTIVE_CTX for Hermes compatibility."
+elif (( NATIVE_CTX > CTX_CAP )); then
+  EFFECTIVE_CTX="$CTX_CAP"
+  CTX_CAPPED=1
+  CTX_MODE="capped at $CTX_CAP (native $NATIVE_CTX exceeds R9700 VRAM headroom)"
+  warn "GGUF native context $NATIVE_CTX exceeds the $CTX_CAP working cap; registering at ctx=$CTX_CAP."
+  warn "If the model fails to load within the health window at ctx=$CTX_CAP, lower -c further to fit VRAM."
 else
   EFFECTIVE_CTX="$NATIVE_CTX"
   CTX_MODE="native model context"
@@ -385,9 +400,10 @@ fi
 MOE_ARG=()
 [[ -n "$CPU_MOE" ]] && MOE_ARG=(--n-cpu-moe "$CPU_MOE")
 CTX_ARG=()
-# Add --ctx-size when the model needs the Hermes-compatibility floor (native < 64000)
-# OR when the operator explicitly requested a context via -c.
-if (( NATIVE_CTX < 64000 )) || [[ -n "${CTX_REQUESTED:-}" ]]; then
+# Emit --ctx-size when the model needs the Hermes-compatibility floor (native < 64000),
+# when the operator explicitly requested a context via -c, OR when we capped the
+# native context to fit VRAM headroom (CTX_CAPPED).
+if (( NATIVE_CTX < 64000 )) || [[ -n "${CTX_REQUESTED:-}" ]] || (( CTX_CAPPED )); then
   CTX_ARG=(--ctx-size "$EFFECTIVE_CTX")
 fi
 CTX_TEXT="${CTX_ARG[*]:-}"
@@ -429,7 +445,13 @@ smoke_test(){
   done
   if (( ! ready )); then
     SMOKE_FAILED=1
-    err "smoke test did not become healthy at ctx=$EFFECTIVE_CTX"
+    if (( CTX_CAPPED )); then
+      err "smoke test did not become healthy at ctx=$EFFECTIVE_CTX (capped from native $NATIVE_CTX for VRAM headroom)."
+      err "The model still failed to load within the health window at the $CTX_CAP cap."
+      err "Likely VRAM exhaustion on $GPU_DEVICE — re-run with a smaller -c (e.g. -c 32768) to fit, or use a smaller quant."
+    else
+      err "smoke test did not become healthy at ctx=$EFFECTIVE_CTX"
+    fi
     grep -iE 'out of memory|hipMalloc|cudaMalloc|failed to allocate|unknown model architecture|error loading model|device.*not found|no devices' "$SMOKE_LOG" | tail -10 >&2 || true
     return 1
   fi
@@ -437,20 +459,58 @@ smoke_test(){
     err "smoke test indicates CPU-only fallback; refusing registration"
     return 1
   fi
-  local completion
-  completion="$(curl -sS --max-time 30 "http://127.0.0.1:$SMOKE_PORT/completion" \
+  # NOTE: reasoning models (e.g. nemotron_h_moe with reasoning_format=deepseek)
+  # may emit only reasoning tokens for the first N predictions, leaving
+  # `content` empty even though generation is healthy. Request enough tokens to
+  # clear the reasoning phase (n_predict>=64), and treat a probe as success when
+  # the server produced real generation — non-empty `content` OR non-empty
+  # `reasoning_content` OR a token-producing, non-error completion. HTTP errors,
+  # malformed JSON, empty bodies, and server errors remain failures.
+  local completion http_code
+  http_code="$(curl -sS --max-time 60 -o /tmp/fetch-model.completion.$$ \
+    -w '%{http_code}' "http://127.0.0.1:$SMOKE_PORT/completion" \
     -H 'Content-Type: application/json' \
-    -d '{"prompt":"Reply with OK.","n_predict":4,"temperature":0}' || true)"
-  if ! python3 - "$completion" <<'PY'
+    -d '{"prompt":"Reply with exactly: OK","n_predict":64,"temperature":0,"cache_prompt":false}' 2>/dev/null || true)"
+  completion="$(cat /tmp/fetch-model.completion.$$ 2>/dev/null || true)"
+  rm -f -- /tmp/fetch-model.completion.$$
+  if ! python3 - "$completion" "$http_code" <<'PY'
 import json, sys
+raw, http_code = sys.argv[1], sys.argv[2]
+# HTTP-level failure: anything other than 2xx is a hard failure.
 try:
-    response=json.loads(sys.argv[1])
-except (IndexError, json.JSONDecodeError):
+    if int(http_code) < 200 or int(http_code) >= 300:
+        raise SystemExit(1)
+except ValueError:
     raise SystemExit(1)
-raise SystemExit(0 if isinstance(response.get('content'), str) and response['content'].strip() else 1)
+# Empty or malformed body is a failure.
+if not raw.strip():
+    raise SystemExit(1)
+try:
+    response = json.loads(raw)
+except (json.JSONDecodeError, ValueError):
+    raise SystemExit(1)
+# Server-reported error field.
+if isinstance(response.get('error'), str) and response['error'].strip():
+    raise SystemExit(1)
+# Success: the model produced real generation.
+content = response.get('content')
+reasoning = response.get('reasoning_content')
+tokens_predicted = response.get('tokens_predicted', response.get('tokens'))
+if isinstance(content, str) and content.strip():
+    raise SystemExit(0)
+if isinstance(reasoning, str) and reasoning.strip():
+    raise SystemExit(0)
+# Fall back to "tokens were generated", which proves the model ran end-to-end.
+try:
+    if tokens_predicted and int(tokens_predicted) > 0:
+        raise SystemExit(0)
+except (ValueError, TypeError):
+    pass
+raise SystemExit(1)
 PY
   then
     err "smoke test health endpoint passed but completion probe failed"
+    err "completion response: ${completion:0:400}"
     return 1
   fi
   ok "loaded, generated, and healthy at ctx=$EFFECTIVE_CTX on $GPU_DEVICE"
@@ -480,6 +540,9 @@ deploy_live_config(){
   fi
   [[ -x "$DEPLOY_HELPER" ]] || die "automatic deployment helper missing: $DEPLOY_HELPER (run sudo $SCRIPT_DIR/install-llama-swap-autodeploy.sh)"
   command -v sudo >/dev/null || die "sudo is required for automatic deployment"
+  # Pass the resolved repo config to the helper so it never depends on its own
+  # hardcoded default (the project moved out of ~/Downloads; ~/$REPO is canonical).
+  export SOURCE_CONFIG="$CONFIG"
   set_stage "deploy"
   sudo -n "$DEPLOY_HELPER" || die "automatic deployment failed; live config was not verified"
   ok "deployed live llama-swap config and verified its API model list"

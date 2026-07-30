@@ -119,53 +119,19 @@ groups:
       - "llama-2-7b-cuda"
       - "qwen3.5-9b-q4-cuda"
       - "qwen3.5-9b-q8-cuda"
+      - "ovisocr2-f16-cuda"
       - "ling-mini-2-q4-cuda"
       - "ling-mini-2-q5-cuda"
       - "ling-mini-2-q6-cuda"
 
 models:
-  "janus-pro-7b-f16":
+  "nero-tron-30b-q4-k-m":
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
     cmd: |
-      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Janus-Pro-7B.f16.gguf
-      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 64000 --jinja
-      --host 0.0.0.0 --port ${PORT} --metrics
-  "model-f16":
-    ttl: 300
-    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
-    cmd: |
-      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/model-f16.gguf
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Nero-Tron-30B-Q4_K_M.gguf
       --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --jinja
-      --host 0.0.0.0 --port ${PORT} --metrics
-  "flux2-klein-9b-uncensored-f16":
-    ttl: 300
-    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
-    cmd: |
-      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/flux2-klein-9b-uncensored-f16.gguf
-      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 64000 --jinja
-      --host 0.0.0.0 --port ${PORT} --metrics
-  "tifa-deepsex-14b-cot-q4-k-m":
-    ttl: 300
-    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
-    cmd: |
-      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Tifa-Deepsex-14b-CoT-Q4_K_M.gguf
-      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --jinja
-      --host 0.0.0.0 --port ${PORT} --metrics
-  "qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-q4-k-s":
-    ttl: 300
-    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
-    cmd: |
-      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-Q4_K_S.gguf
-      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
-      --host 0.0.0.0 --port ${PORT} --metrics
-  "qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-low-mtp-q6-k":
-    ttl: 300
-    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
-    cmd: |
-      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-LOW-MTP-Q6_K.gguf
-      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
-      --host 0.0.0.0 --port ${PORT} --metrics
+      --ctx-size 65536 --host 0.0.0.0 --port ${PORT} --metrics
   "ornith-1-0-35b-ud-q4-k-xl":
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
@@ -439,6 +405,14 @@ models:
   #  (CUDA0 doubles as a hard-fail if the GPU is missing — same rule as ROCm0).
   #  These 3 dense models fit 16GB at 64K ctx; validate any Q8 ~15GB additions.
   # ══════════════════════════════════════════════════════════════════════════
+
+  "ovisocr2-f16-cuda":
+    ttl: 300
+    env: ["CUDA_VISIBLE_DEVICES=0"]
+    cmd: |
+      /opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/OvisOCR2-F16.gguf
+      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
 
   "qwen2.5-coder-14b-cuda":
     ttl: 300

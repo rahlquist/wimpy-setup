@@ -36,12 +36,12 @@ point this at `/usr/local/bin/llama-bench`, that was a stale hand-built
 CUDA copy removed during the R9700 migration):
 
 ```
-0 3 * * * TZ=America/New_York /usr/bin/python3 /home/rahlquist/Downloads/wimpy-setup/benching/model_watcher.py \
+0 3 * * * TZ=America/New_York /usr/bin/python3 /home/rahlquist/wimpy-setup/benching/model_watcher.py \
     --models-dir /home/rahlquist/.cache/llama.cpp \
-    --db /home/rahlquist/Downloads/wimpy-setup/benching/bench.db \
-    --csv /home/rahlquist/Downloads/wimpy-setup/benching/bench_summary.csv \
+    --db /home/rahlquist/wimpy-setup/benching/bench.db \
+    --csv /home/rahlquist/wimpy-setup/benching/bench_summary.csv \
     --bench-bin /usr/bin/llama-bench \
-    >> /home/rahlquist/Downloads/wimpy-setup/benching/watcher.log 2>&1
+    >> /home/rahlquist/wimpy-setup/benching/watcher.log 2>&1
 ```
 
 `TZ=America/New_York` on the cron line makes cron itself fire at 3:00 AM

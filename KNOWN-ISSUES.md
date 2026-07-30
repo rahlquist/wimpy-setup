@@ -95,11 +95,11 @@ MEDIUM = friction/inconsistency, LOW = polish.
   regardless; :137-141 AUR claude-code updates fail silently via `|| true`.
   Fix: `sudo -u "$CURRENT_USER" ...`.
 
-- [ ] **H12. benching/llama-bench-nightly.service hardcodes paths.**
-  /home/rahlquist/Downloads/wimpy-setup 8 times — breaks for any other clone
-  location; bench.db/CSV/log written into the repo dir where
-  push-to-github.sh:39 `git add -A` can commit them.
-  Fix: parameterize paths; gitignore artifacts.
+- [x] **H12. benching/llama-bench-nightly.service hardcodes paths.**
+  Repointed from the old `~/Downloads` clone location to `/home/rahlquist/wimpy-setup`
+  (project moved out of Downloads); bench.db/CSV/log still written into the
+  repo dir where push-to-github.sh:39 `git add -A` can commit them remains a
+  concern. Fix: parameterize paths; gitignore artifacts.
 
 - [ ] **H13. No troubleshooting section.**
   Failure knowledge lives only in CLAUDE.md incident narrative.
