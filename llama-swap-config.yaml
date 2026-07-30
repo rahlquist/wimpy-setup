@@ -125,13 +125,6 @@ groups:
       - "ling-mini-2-q6-cuda"
 
 models:
-  "nero-tron-30b-q4-k-m":
-    ttl: 300
-    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
-    cmd: |
-      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Nero-Tron-30B-Q4_K_M.gguf
-      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --jinja
-      --ctx-size 65536 --host 0.0.0.0 --port ${PORT} --metrics
   "model-f16":
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]

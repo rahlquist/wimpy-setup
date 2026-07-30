@@ -246,6 +246,31 @@ detect_gpu_device(){
   command -v nvidia-smi >/dev/null 2>&1 && { printf '%s\n' CUDA0; return; }
 }
 
+# --- Model exclusion rules -------------------------------------------------
+# Models that must never be registered on wimpy (wrong platform / wrong build).
+# Checked immediately after GGUF inspect, BEFORE smoke-test and registration, so
+# a flagged model is deleted and reported without spending GPU time. A match
+# aborts the pipeline, deletes the freshly downloaded GGUF, and exits cleanly
+# with a clear notification.
+#
+# To add a rule: append an `elif` matching on $REPO_ID / $FILE / $ARCH /
+# $DESCRIPTION, and set EXCLUDE_REASON. Keep matches specific (e.g. an exact
+# bad version token) so you do not over-block an otherwise-good sibling build.
+EXCLUDE_REASON=""
+is_excluded_model(){
+  EXCLUDE_REASON=""
+  local lrepo lcfile
+  lrepo="$(printf '%s' "${REPO_ID:-}" | tr '[:upper:]' '[:lower:]')"
+  lcfile="$(printf '%s' "${FILE:-}" | tr '[:upper:]' '[:lower:]')"
+  # Vicuna v1.1 is the macOS-only build (no Linux/ROCm/CUDA llama.cpp support).
+  # v1.3+ / v1.5 are normal cross-platform GGUFs, so match ONLY the 1.1 series.
+  if [[ "$lrepo" == *vicuna* && ( "$lcfile" == *v1.1* || "$lcfile" == *1.1* ) ]]; then
+    EXCLUDE_REASON="Vicuna v1.1 is a macOS-only build (no Linux/ROCm/CUDA support); excluded per wimpy policy."
+    return 0
+  fi
+  return 1
+}
+
 LLAMA_SERVER="$(detect_server)"
 CONFIG="$(detect_config || true)"
 [[ -n "$LLAMA_SERVER" ]] || die "llama-server not found. Set LLAMA_SERVER=/path/to/llama-server."
@@ -345,6 +370,15 @@ import json,sys
 print(json.loads(sys.argv[1]).get('description','').replace('\n',' ').strip())
 PY
 )"
+# --- Exclusion gate: flag Mac-only / unsupported models BEFORE smoke/register.
+set_stage "exclude"
+if is_excluded_model; then
+  warn "MODEL EXCLUDED: $EXCLUDE_REASON"
+  info "deleting freshly downloaded GGUF so it is not registered: $MODEL_PATH"
+  [[ "$SRC_CLASS" != local ]] && rm -f -- "$MODEL_PATH"
+  ok "aborted: model flagged and excluded (not registered)."
+  exit 0
+fi
 set_stage "validate"
 [[ "$NATIVE_CTX" =~ ^[0-9]+$ ]] || die "GGUF has no usable native context metadata"
 # Context policy:
