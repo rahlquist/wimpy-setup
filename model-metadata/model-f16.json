@@ -1,0 +1,20 @@
+{
+  "alias": "model-f16",
+  "description": "Gguf Convert Dir",
+  "downloaded_at": "2026-07-27T01:43:56+00:00",
+  "filename": "model-f16.gguf",
+  "gguf": {
+    "architecture": "qwen2vl",
+    "block_count": 28,
+    "context_length": 128000,
+    "description": "",
+    "expert_count": 0,
+    "expert_used_count": 0,
+    "name": "Gguf Convert Dir"
+  },
+  "model_path": "/home/rahlquist/.cache/llama.cpp/model-f16.gguf",
+  "n_cpu_moe": null,
+  "native_context": 128000,
+  "repository": "ThirdMiddle/Qwen-Image-1.9",
+  "requested_context": 128000
+}

@@ -1,0 +1,20 @@
+{
+  "alias": "flux2-klein-9b-uncensored-f16",
+  "description": "Flux2 Klein 9b Uncensored Text Encoder",
+  "downloaded_at": "2026-07-27T01:09:52+00:00",
+  "filename": "flux2-klein-9b-uncensored-f16.gguf",
+  "gguf": {
+    "architecture": "qwen3",
+    "block_count": 36,
+    "context_length": 40960,
+    "description": "",
+    "expert_count": 0,
+    "expert_used_count": 0,
+    "name": "Flux2 Klein 9b Uncensored Text Encoder"
+  },
+  "model_path": "/home/rahlquist/.cache/llama.cpp/flux2-klein-9b-uncensored-f16.gguf",
+  "n_cpu_moe": null,
+  "native_context": 40960,
+  "repository": "ponpoke/flux2-klein-9b-uncensored-text-encoder",
+  "requested_context": 64000
+}

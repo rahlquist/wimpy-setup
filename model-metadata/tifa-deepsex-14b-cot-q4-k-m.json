@@ -1,0 +1,20 @@
+{
+  "alias": "tifa-deepsex-14b-cot-q4-k-m",
+  "description": "Checkpoint 150 Merged",
+  "downloaded_at": "2026-07-26T21:40:06+00:00",
+  "filename": "Tifa-Deepsex-14b-CoT-Q4_K_M.gguf",
+  "gguf": {
+    "architecture": "qwen2",
+    "block_count": 48,
+    "context_length": 131072,
+    "description": "",
+    "expert_count": 0,
+    "expert_used_count": 0,
+    "name": "Checkpoint 150 Merged"
+  },
+  "model_path": "/home/rahlquist/.cache/llama.cpp/Tifa-Deepsex-14b-CoT-Q4_K_M.gguf",
+  "n_cpu_moe": null,
+  "native_context": 131072,
+  "repository": "ValueFX9507/Tifa-Deepsex-14b-CoT-GGUF-Q4",
+  "requested_context": 131072
+}
