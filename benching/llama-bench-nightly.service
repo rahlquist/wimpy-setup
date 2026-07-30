@@ -1,22 +1,17 @@
 [Unit]
-Description=llama.cpp nightly model benchmark watcher
+Description=llama.cpp nightly model benchmark sweep (both GPUs)
 After=network.target
 
 [Service]
 Type=oneshot
 Environment=TZ=America/New_York
-# Fail loudly if the bench binary is gone (2026-07-08: unit silently pointed
+# Fail loudly if either bench binary is gone (2026-07-08: unit silently pointed
 # at a deleted build tree for a night — never exit 0 with nothing benched).
 ExecStartPre=/usr/bin/test -x /usr/local/bin/llama-bench
-# tee: keep the flat-file log AND send everything to the journal/syslog.
-ExecStart=/bin/bash -o pipefail -c '/usr/bin/python3 /home/rahlquist/wimpy-setup/benching/model_watcher.py \
-    --models-dir /home/rahlquist/.cache/llama.cpp \
-    --db /home/rahlquist/wimpy-setup/benching/bench.db \
-    --csv /home/rahlquist/wimpy-setup/benching/bench_summary.csv \
-    --bench-bin /usr/local/bin/llama-bench 2>&1 | tee -a /home/rahlquist/wimpy-setup/benching/watcher.log'
-ExecStart=/bin/bash -o pipefail -c '/usr/bin/python3 /home/rahlquist/wimpy-setup/benching/report.py \
-    --db /home/rahlquist/wimpy-setup/benching/bench.db \
-    --all --html --out /home/rahlquist/wimpy-setup/benching/bench_results.html 2>&1 | tee -a /home/rahlquist/wimpy-setup/benching/watcher.log'
+ExecStartPre=/usr/bin/test -x /opt/llama-cuda/bin/llama-bench
+# Drive the sweep across both GPUs (R9700 ROCm + RTX 5060 Ti CUDA) via the
+# wrapper; the wrapper also regenerates bench_results.html.
+ExecStart=/bin/bash -o pipefail -c '/home/rahlquist/wimpy-setup/benching/run-nightly-bench.sh'
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=llama-bench-nightly

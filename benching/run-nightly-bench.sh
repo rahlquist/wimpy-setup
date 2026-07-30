@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# run-nightly-bench.sh — drive the nightly llama.cpp benchmark sweep across BOTH
+# GPUs on wimpy:
+#   * ROCm build  -> AMD Radeon AI PRO R9700   (/usr/local/bin/llama-bench)
+#   * CUDA build  -> NVIDIA RTX 5060 Ti 16 GB  (/opt/llama-cuda/bin/llama-bench)
+#
+# model_watcher.py is GPU-aware: it detects the GPU from the bench binary's
+# sibling llama-server --list-devices and only benchmarks models that have NEVER
+# been benchmarked on that GPU. Running it once per --bench-bin therefore covers
+# each card independently, both writing into the same bench.db keyed by gpu_info.
+# A model already covered on the R9700 is NOT re-run there, and vice-versa.
+#
+# Each invocation uses its own lockfile so the two passes never collide.
+set -uo pipefail
+
+BENCH_DIR="/home/rahlquist/wimpy-setup/benching"
+MODELS_DIR="/home/rahlquist/.cache/llama.cpp"
+DB="$BENCH_DIR/bench.db"
+CSV="$BENCH_DIR/bench_summary.csv"
+PY="/usr/bin/python3"
+WATCHER="$BENCH_DIR/model_watcher.py"
+REPORTER="$BENCH_DIR/report.py"
+LOG="$BENCH_DIR/watcher.log"
+
+ROCm_BIN="/usr/local/bin/llama-bench"      # ROCm build -> AMD R9700
+CUDA_BIN="/opt/llama-cuda/bin/llama-bench" # CUDA build -> RTX 5060 Ti
+
+run_pass() {
+  local label="$1" bin="$2" lock="$3"
+  echo "[$(date -u +%FT%TZ)] === benchmark pass: $label ($bin) ===" | tee -a "$LOG"
+  if [[ ! -x "$bin" ]]; then
+    echo "[$(date -u +%FT%TZ)] SKIP $label: bench binary not found: $bin" | tee -a "$LOG"
+    return 0
+  fi
+  "$PY" "$WATCHER" \
+    --models-dir "$MODELS_DIR" \
+    --db "$DB" --csv "$CSV" \
+    --bench-bin "$bin" \
+    --lockfile "$lock" \
+    2>&1 | tee -a "$LOG"
+  echo "[$(date -u +%FT%TZ)] === $label pass done (rc=${PIPESTATUS[0]}) ===" | tee -a "$LOG"
+}
+
+# R9700 (ROCm) first, then RTX 5060 Ti (CUDA). Sequential to avoid both GPUs
+# being monopolized at once (the R9700 is also the live inference card).
+run_pass "amd-r9700-rocm" "$ROCm_BIN" "/tmp/model_watcher.rocm.lock"
+run_pass "nvidia-5060ti-cuda" "$CUDA_BIN" "/tmp/model_watcher.cuda.lock"
+
+# Regenerate the HTML report from whatever is now in the DB.
+echo "[$(date -u +%FT%TZ)] === regenerating report ===" | tee -a "$LOG"
+"$PY" "$REPORTER" --db "$DB" --all --html --out "$BENCH_DIR/bench_results.html" 2>&1 | tee -a "$LOG"
+echo "[$(date -u +%FT%TZ)] nightly benchmark sweep complete" | tee -a "$LOG"
