@@ -125,6 +125,10 @@ days / 73 releases behind upstream by the time this was noticed.
   grown and split across two GPU groups — 26 on the R9700, 19 `-cuda` aliases
   on the 5060 Ti; the historical table below is the pre-migration 18.)
 
+## Build/install gotcha (one-off wrappers)
+
+If you wrap the install steps in a helper script and run it as `sudo bash wrapper.sh`, `$HOME` resets to `/root` at the first line, so any `$HOME/src/llama.cpp` path resolves under `/root` and `cmake --install` fails with `Not a file: /root/src/llama.cpp/build/cmake_install.cmake` (the build is fine; the path just points at the wrong home). The repo's own `05-llama-cpp.sh`/`06-llama-cpp-cuda.sh` avoid this: they set `BUILD_DIR=$HOME/src/llama.cpp` as the unprivileged user (the variable already holds the literal `/home/rahlquist/...` string), run build steps unprivileged, and only the final `sudo cmake --install` is elevated — `cmake --install` never re-expands `$HOME`. For a one-off wrapper, either let each `sudo` line self-escalate (don't wrap the whole script in `sudo bash`), hardcode `/home/rahlquist/src/llama.cpp`, or run `sudo -E bash wrapper.sh` to preserve env. (Also captured as GOTCHA 5 in the wimpy-model-bringup skill.)
+
 ## Hard rules (do not violate)
 
 1. **Back up before modifying any working config.** Timestamped copy first:
