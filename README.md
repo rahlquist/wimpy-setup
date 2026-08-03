@@ -74,6 +74,42 @@ The script is fully idempotent and parameterised — same script, different host
 bash hermesvm-setup.sh --hostname hermesvm02 --wimpy wimpy.home.lan --port 8080
 ```
 
+## SSH trust between hosts (hermes automation account)
+
+Two scripts recreate the hermes automation SSH setup on a fresh Linux install:
+
+- `ssh-hermes-user.sh` — per-host: creates the dedicated `hermes` user (no
+  sudo by default) and writes the hardened sshd dropin
+  `/etc/ssh/sshd_config.d/99-hermes-automation.conf`. The dropin's
+  `AllowUsers` line is merged, never replaced — existing entries are always
+  preserved, so re-running the script (or running it with different
+  `--allow` flags) can never lock a user out.
+- `ssh-trust-pair.sh` — key exchange between two hosts: generates ed25519
+  keypairs for the admin user and the `hermes` user if missing, then
+  installs this host's pubkeys into the peer's `authorized_keys`
+  (admin → admin, hermes → hermes). **Run it on BOTH hosts** — each run
+  pushes one direction; the first push to a fresh peer prompts for the
+  peer's password.
+
+### Fresh install, two machines (A and B)
+
+```bash
+# On host A (as your admin user)
+git clone <this-repo> ~/wimpy-setup && cd ~/wimpy-setup
+sudo bash ssh-hermes-user.sh --user hermes --allow <admin-user-on-A>
+bash ssh-trust-pair.sh --peer <host-B> --local-user <admin-user-on-A> --peer-user <admin-user-on-B>
+
+# On host B (as your admin user)
+sudo bash ssh-hermes-user.sh --user hermes --allow <admin-user-on-B>
+bash ssh-trust-pair.sh --peer <host-A> --local-user <admin-user-on-B> --peer-user <admin-user-on-A>
+```
+
+After both hosts have run the pair script, these are all passwordless:
+`hermes@A → hermes@B`, `hermes@B → hermes@A`, `<admin>@A → <admin>@B`,
+`<admin>@B → <admin>@A`.
+
+Both scripts are idempotent and safe to re-run.
+
 ## DNS and DHCP (OPNsense)
 
 See `DNS-DHCP-INSTRUCTIONS.md` for step-by-step Unbound and dnsmasq config.
@@ -228,4 +264,7 @@ hermesvm-setup.sh        (VM post-install, --hostname parameterised)
 
 README.md                CLAUDE.md              HARDWARE.md
 DNS-DHCP-INSTRUCTIONS.md NETWORK-DIAGRAM.md     CHANGELOG.md
+
+ssh-hermes-user.sh       (per-host hermes account + hardened sshd dropin)
+ssh-trust-pair.sh        (bidirectional passwordless key exchange, run both ways)
 ```
