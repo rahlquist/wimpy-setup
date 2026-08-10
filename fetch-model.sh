@@ -24,22 +24,27 @@ set -euo pipefail
 err(){ printf '\033[31m[ERR]\033[0m  %s\n' "$*" >&2; }
 ok(){  printf '\033[32m[OK]\033[0m   %s\n' "$*"; }
 info(){ printf '\033[36m[..]\033[0m   %s\n' "$*"; }
-warn(){ printf '\033[33m[!!]\033[0m   %s\n' "$*" >&2; }
+WARNINGS=""
+warn(){
+  local message="$*"
+  WARNINGS="${WARNINGS:+$WARNINGS; }$message"
+  printf '\033[33m[!!]\033[0m   %s\n' "$message" >&2
+}
 die(){
-  if [[ -n "$STAGE" ]]; then
-    fail "$*" 1
-  else
-    err "$*"; exit 1
-  fi
+  fail "$*" 1
 }
 STAGE=""
-STUCK_REASON=""; LAST_RC=""; ROLLED_BACK=""
+STUCK_REASON=""; LAST_RC=""; ROLLED_BACK=""; FAIL_HANDLED=0
 DOSSIER_DIR="${DOSSIER_DIR:-$PWD}"
+RUN_STARTED="$(date +%Y%m%d%H%M%S)"
+RUN_LOG="${RUN_LOG:-$DOSSIER_DIR/fetch-model-${RUN_STARTED}.run.log}"
+mkdir -p "$DOSSIER_DIR" || { printf '[ERR] cannot create dossier directory: %s\n' "$DOSSIER_DIR" >&2; exit 1; }
+exec > >(tee -a "$RUN_LOG") 2>&1
 set_stage(){ STAGE="$1"; }
 fail(){
   local msg="$1" rc="${2:-1}"
   err "[$STAGE] $msg"
-  STUCK_REASON="$msg"; LAST_RC="$rc"
+  STUCK_REASON="$msg"; LAST_RC="$rc"; FAIL_HANDLED=1
   recover_dossier
   exit "$rc"
 }
@@ -65,6 +70,7 @@ recover_dossier(){
     echo "- config       : ${CONFIG:-<none>}"
     echo "- config backup: ${CONFIG_BACKUP:-<none / already cleaned>}"
     echo "- local src    : ${LOCAL_SRC:-<n/a>}"
+    echo "- complete run output: ${RUN_LOG:-<none>}"
     echo
     echo "## Partial state / what already succeeded"
     echo "- acquired model file present: $([[ -f "${MODEL_PATH:-}" ]] && echo yes || echo no)"
@@ -81,6 +87,9 @@ recover_dossier(){
       echo "- (no smoke log captured)"
     fi
     echo
+    echo "## GPU support summary"
+    echo "${GPU_SUMMARY:-not evaluated}"
+    echo
     echo "## Resume command"
     local resume="cd \"$(pwd)\" && ./fetch-model.sh"
     local rspec; rspec="$(printf '%q' "${SPEC:-}")"; resume+=" ${rspec}"
@@ -95,12 +104,22 @@ recover_dossier(){
     echo "fetch-model.sh got stuck at stage '${STAGE:-?}' while handling '${SPEC:-?}'."
     echo "Reason: $STUCK_REASON"
     echo "Model file present: $([[ -f "${MODEL_PATH:-}" ]] && echo yes || echo no). Config rolled back: ${ROLLED_BACK:+yes}${ROLLED_BACK:-no}."
-    echo "Config backup (if any): ${CONFIG_BACKUP:-none}. Help me recover — likely need to (re)run from the resume command above or fix the root cause, then re-run."
+    echo "Config backup (if any): ${CONFIG_BACKUP:-none}. Complete output is in ${RUN_LOG:-the run log}. Read that file and help me recover while preserving the evidence."
     echo '```'
   } > "$dossier" 2>&1
   err "Wrote recovery dossier: $dossier"
-  err "Paste the fenced block at the bottom to Hermes to recover."
+  err "Hermes recovery command: hermes chat -q \"Read $dossier and its complete run log at ${RUN_LOG:-<run-log>}; diagnose the failure and tell me the safest recovery steps. Do not discard evidence.\""
 }
+unexpected_failure(){
+  local rc=$?
+  if (( rc != 0 && FAIL_HANDLED == 0 )); then
+    STUCK_REASON="unexpected command failure (exit $rc) at stage ${STAGE:-unknown}"
+    FAIL_HANDLED=1
+    recover_dossier || true
+  fi
+  exit "$rc"
+}
+trap unexpected_failure ERR
 
 PIPELINE_OK=0
 SMOKE_LOG=""
@@ -120,7 +139,7 @@ METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
 DEPLOY_SOURCE_CONFIG="${DEPLOY_SOURCE_CONFIG:-$SCRIPT_DIR/llama-swap-config.yaml}"
 DEPLOY_HELPER="${DEPLOY_HELPER:-/usr/local/sbin/llama-swap-deploy}"
 
-NAME=""; CTX="64000"; CTX_REQUESTED=""; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1; DO_DEPLOY=1
+NAME=""; CTX="64000"; CTX_REQUESTED=""; ASSUME_YES=1; DO_SMOKE=1; DO_REGISTER=1; DO_DEPLOY=1
 SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""
 KEEP_SOURCE=0; SOURCE_COPIED=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""; REMOTE_FILE=""
 while [[ $# -gt 0 ]]; do
@@ -449,6 +468,56 @@ CMD_LINES=(
 # Remove the harmless double space when MoE offload is not configured.
 CMD_LINES[1]="$(printf '%s' "${CMD_LINES[1]}" | tr -s ' ')"
 
+# CUDA is evaluated automatically after the primary ROCm registration.  This is
+# deliberately a fit estimate first, followed by the same real smoke test on
+# CUDA before anything is added to the CUDA group.  A model that merely fits the
+# arithmetic estimate is not treated as usable until the CUDA smoke test passes.
+CUDA_SUMMARY="not evaluated"
+CUDA_SUPPORTED=0
+CUDA_NAME="${NAME}-cuda"
+CUDA_SERVER="/opt/llama-cuda/bin/llama-server"
+CUDA_FIT_JSON=""
+CUDA_FREE_BYTES=""
+cuda_fit_decision(){
+  if [[ ! -x "$CUDA_SERVER" ]]; then
+    CUDA_SUMMARY="NOT SUPPORTED — CUDA llama-server missing: $CUDA_SERVER"
+    return 0
+  fi
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    CUDA_SUMMARY="NOT SUPPORTED — nvidia-smi is unavailable"
+    return 0
+  fi
+  CUDA_FREE_BYTES="$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -n1 | awk '{printf "%d", $1 * 1024 * 1024}')"
+  [[ "$CUDA_FREE_BYTES" =~ ^[0-9]+$ ]] || { CUDA_SUMMARY="NOT SUPPORTED — could not read CUDA free VRAM"; return 0; }
+  # The estimate includes a reserve for runtime allocations, but leave a clear
+  # warning whenever it is within 1 GiB of the observed free-VRAM boundary.
+  CUDA_METADATA_FILE="$(mktemp /tmp/fetch-model.metadata.XXXXXX.json)"
+  printf '%s' "$METADATA_JSON" > "$CUDA_METADATA_FILE"
+  CUDA_FIT_JSON="$(python3 "$SCRIPT_DIR/tools/cuda_fit.py" --model-bytes "$(stat -c '%s' "$MODEL_PATH")" --metadata "$CUDA_METADATA_FILE" --free-bytes "$CUDA_FREE_BYTES" 2>/dev/null || true)"
+  rm -f "$CUDA_METADATA_FILE"
+  if [[ -z "$CUDA_FIT_JSON" ]]; then
+    CUDA_SUMMARY="NOT SUPPORTED — CUDA fit estimator failed"
+    return 0
+  fi
+  local decision reason required free
+  decision="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("decision","unknown"))' <<<"$CUDA_FIT_JSON")"
+  reason="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("reason",""))' <<<"$CUDA_FIT_JSON")"
+  required="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("required_bytes",0))' <<<"$CUDA_FIT_JSON")"
+  free="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("free_bytes",0))' <<<"$CUDA_FIT_JSON")"
+  if [[ "$decision" == fit ]]; then
+    CUDA_SUPPORTED=1
+    CUDA_SUMMARY="MAY-FIT — estimated required $(numfmt --to=iec "$required") vs free $(numfmt --to=iec "$free"); CUDA smoke test pending"
+    if (( free - required < 1073741824 )); then
+      warn "CUDA fit is marginal: less than 1 GiB estimated headroom remains."
+    fi
+  else
+    CUDA_SUMMARY="NOT SUPPORTED — ${reason:-estimated required $(numfmt --to=iec "$required") exceeds free $(numfmt --to=iec "$free") }"
+  fi
+}
+cuda_fit_decision
+printf '  │ model bytes  : %s\n' "$(stat -c '%s' "$MODEL_PATH")"
+printf '  │ CUDA decision: %s\n' "$CUDA_SUMMARY"
+
 SERVER_PID=""; SMOKE_LOG=""
 cleanup(){
   if [[ -n "$SERVER_PID" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
@@ -586,6 +655,7 @@ set_stage "register"
 (( DO_REGISTER )) || { PIPELINE_OK=1; info "registration skipped. id would be: $NAME"; exit 0; }
 [[ -n "$CONFIG" ]] || die "llama-swap config not found. Set LLAMA_SWAP_CONFIG."
 [[ -w "$CONFIG" ]] || die "config is not writable: $CONFIG"
+PRIMARY_ALREADY=0
 SIDECAR="$METADATA_DIR/$NAME.json"
 if [[ -e "$SIDECAR" ]]; then
   set +e
@@ -599,16 +669,14 @@ PY
   set -e
   case "$sidecar_rc" in
     0)
-      warn "metadata sidecar already exists: $SIDECAR (consistent); nothing to do."
-      deploy_live_config
-      ok "model already registered as '$NAME'."
-      PIPELINE_OK=1
-      exit 0
+      warn "metadata sidecar already exists: $SIDECAR (consistent); primary registration will be skipped."
+      PRIMARY_ALREADY=1
       ;;
     2) die "name collision: '$NAME' already registered for a different model ($SIDECAR)";;
     *) die "cannot read existing sidecar: $SIDECAR";;
   esac
 fi
+if (( ! PRIMARY_ALREADY )); then
 mkdir -p "$METADATA_DIR" || die "cannot create metadata directory: $METADATA_DIR"
 mkdir -p "$(dirname "$INVENTORY_PATH")" || die "cannot create inventory directory: $(dirname "$INVENTORY_PATH")"
 SIDECAR_TMP="$(mktemp "$METADATA_DIR/.${NAME}.XXXXXX")" || die "cannot create metadata temporary file"
@@ -631,6 +699,16 @@ import os, re, sys
 cfg, name, ttl, cmdfile, gpu_env, gpu_pin = sys.argv[1:]
 with open(cfg, encoding='utf-8') as f: text=f.read()
 lines=text.splitlines()
+# Every model must belong to exactly one GPU group. Add the primary ROCm
+# registration to amd-r9700 when the canonical dual-GPU config has groups.
+gi=next((i for i,l in enumerate(lines) if re.match(r'^  amd-r9700:\s*$', l)), None)
+if gi is not None:
+    group_end=next((i for i in range(gi+1, len(lines)) if re.match(r'^  [^ \n][^:]*:\s*$', lines[i])), len(lines))
+    if not any(re.match(r'^      - ["\\\']?'+re.escape(name)+r'["\\\']?\s*$', l) for l in lines[gi:group_end]):
+        members=next((i for i in range(gi+1, group_end) if re.match(r'^    members:\s*$', lines[i])), None)
+        if members is None:
+            raise SystemExit('amd-r9700 members list not found')
+        lines.insert(members+1, f'      - "{name}"')
 mi=next((i for i,l in enumerate(lines) if re.match(r'^models:\s*(?:#.*)?$', l)), None)
 if mi is None: raise SystemExit('no top-level models: key found')
 child_indent='  '
@@ -701,6 +779,59 @@ mv -- "$INVENTORY_TMP" "$INVENTORY_PATH"
 rm -f -- "$CONFIG_BACKUP"
 ok "wrote metadata sidecar: $SIDECAR"
 ok "updated model inventory: $INVENTORY_PATH"
+fi
+
+if (( CUDA_SUPPORTED )) && (( DO_REGISTER )) && [[ -x "$CUDA_SERVER" ]]; then
+  set_stage "cuda-smoke"
+  CUDA_SMOKE_PORT="${CUDA_SMOKE_PORT:-18081}"
+  CUDA_SMOKE_LOG="$(mktemp /tmp/fetch-model.cuda.XXXXXX.log)"
+  info "CUDA smoke test: ctx=$EFFECTIVE_CTX device=CUDA0"
+  env CUDA_VISIBLE_DEVICES=0 "$CUDA_SERVER" --model "$MODEL_PATH" --n-gpu-layers 99 \
+    --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 "${CTX_ARG[@]}" --jinja \
+    --host 127.0.0.1 --port "$CUDA_SMOKE_PORT" >"$CUDA_SMOKE_LOG" 2>&1 &
+  CUDA_SERVER_PID=$!
+  cuda_ready=0
+  for ((i=0; i<SMOKE_TRIES; i++)); do
+    kill -0 "$CUDA_SERVER_PID" 2>/dev/null || break
+    code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$CUDA_SMOKE_PORT/health" 2>/dev/null || true)"
+    [[ "$code" == 200 ]] && { cuda_ready=1; break; }
+    sleep 1
+  done
+  if (( ! cuda_ready )); then
+    CUDA_SUPPORTED=0
+    CUDA_SUMMARY="FIT ESTIMATE FAILED — CUDA health check did not become ready; see $CUDA_SMOKE_LOG"
+    warn "$CUDA_SUMMARY"
+    kill "$CUDA_SERVER_PID" 2>/dev/null || true
+    wait "$CUDA_SERVER_PID" 2>/dev/null || true
+  else
+    CUDA_SUPPORTED=1
+    CUDA_SUMMARY="SUPPORTED — CUDA fit estimate and health check passed"
+    kill "$CUDA_SERVER_PID" 2>/dev/null || true
+    wait "$CUDA_SERVER_PID" 2>/dev/null || true
+    rm -f "$CUDA_SMOKE_LOG"
+    CUDA_COMMAND_FILE="$(mktemp /tmp/fetch-model.cuda-cmd.XXXXXX)"
+    printf '%s\n' \
+      "$CUDA_SERVER --model $MODEL_PATH" \
+      "--n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 $CTX_TEXT --jinja" \
+      '--host 0.0.0.0 --port ${PORT} --metrics' > "$CUDA_COMMAND_FILE"
+    CUDA_METADATA_JSON="$METADATA_JSON"
+    python3 "$SCRIPT_DIR/tools/register_model_variant.py" \
+      --config "$CONFIG" --name "$CUDA_NAME" --group nvidia-5060ti --ttl "$TTL" \
+      --env 'CUDA_VISIBLE_DEVICES=0' --command-file "$CUDA_COMMAND_FILE" \
+      --metadata-dir "$METADATA_DIR" --inventory "$INVENTORY_PATH" \
+      --inventory-renderer "$INVENTORY_RENDERER" --metadata-json "$CUDA_METADATA_JSON" \
+      --repository "$REPO_ID" --filename "$FILE" --model-path "$MODEL_PATH" \
+      --effective-context "$EFFECTIVE_CTX" --native-context "$NATIVE_CTX" \
+      --cpu-moe "$CPU_MOE" --description "$DESCRIPTION" || die "CUDA variant registration failed"
+    rm -f "$CUDA_COMMAND_FILE"
+  fi
+fi
+
+printf '\n=== fetch-model summary ===\n'
+printf 'ROCm support: SUPPORTED — %s (id=%s)\n' "$GPU_DEVICE" "$NAME"
+printf 'CUDA support: %s (id=%s)\n' "$CUDA_SUMMARY" "$CUDA_NAME"
+printf 'Model: %s bytes, configured context: %s\n' "$(stat -c '%s' "$MODEL_PATH")" "$EFFECTIVE_CTX"
+printf 'Warnings: %s\n' "${WARNINGS:-none}"
 
 deploy_live_config
 

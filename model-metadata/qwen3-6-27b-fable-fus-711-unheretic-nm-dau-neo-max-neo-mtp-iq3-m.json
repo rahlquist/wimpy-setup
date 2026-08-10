@@ -1,0 +1,25 @@
+{
+  "alias": "qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-iq3-m",
+  "description": "Qwen3.6 27B Architect Polaris2 Fable B F451 NM",
+  "downloaded_at": "2026-08-10T15:45:54+00:00",
+  "filename": "Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ3_M.gguf",
+  "gguf": {
+    "architecture": "qwen35",
+    "attention_head_count": 24,
+    "attention_head_count_kv": 4,
+    "attention_key_length": 256,
+    "attention_value_length": 256,
+    "block_count": 65,
+    "context_length": 262144,
+    "description": "",
+    "embedding_length": 5120,
+    "expert_count": 0,
+    "expert_used_count": 0,
+    "name": "Qwen3.6 27B Architect Polaris2 Fable B F451 NM"
+  },
+  "model_path": "/home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ3_M.gguf",
+  "n_cpu_moe": null,
+  "native_context": 262144,
+  "repository": "DavidAU/Qwen3.6-27B-Fable-Fusion-711-Uncensored-Heretic-NM-DAU-NEO-MAX-MTP-GGUF",
+  "requested_context": 65536
+}

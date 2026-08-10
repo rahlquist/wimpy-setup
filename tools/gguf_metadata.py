@@ -75,6 +75,11 @@ def read_metadata(path: Path) -> dict[str, Any]:
         ".block_count",
         ".expert_count",
         ".expert_used_count",
+        ".embedding_length",
+        ".attention.head_count",
+        ".attention.head_count_kv",
+        ".attention.key_length",
+        ".attention.value_length",
     }
     wanted_exact = {"general.architecture", "general.name", "general.description"}
     result: dict[str, Any] = {}
@@ -109,10 +114,17 @@ def read_metadata(path: Path) -> dict[str, Any]:
         "block_count": result.get(prefix + "block_count"),
         "expert_count": result.get(prefix + "expert_count", 0),
         "expert_used_count": result.get(prefix + "expert_used_count", 0),
+        "embedding_length": result.get(prefix + "embedding_length"),
+        "attention_head_count": result.get(prefix + "attention.head_count"),
+        "attention_head_count_kv": result.get(prefix + "attention.head_count_kv"),
+        "attention_key_length": result.get(prefix + "attention.key_length"),
+        "attention_value_length": result.get(prefix + "attention.value_length"),
         "name": result.get("general.name", ""),
         "description": result.get("general.description", ""),
     }
-    for field in ("context_length", "block_count", "expert_count", "expert_used_count"):
+    for field in ("context_length", "block_count", "expert_count", "expert_used_count",
+                  "embedding_length", "attention_head_count", "attention_head_count_kv",
+                  "attention_key_length", "attention_value_length"):
         if output[field] is not None and not isinstance(output[field], int):
             raise ValueError(f"GGUF {field} has an invalid type")
     return output
