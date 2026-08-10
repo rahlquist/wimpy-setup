@@ -1,5 +1,40 @@
 # Changelog — wimpy-setup
 
+## SSH trust: reusable scripts for the hermes automation account (2026-08-03)
+
+**Incident (root cause):** on 2026-08-03, hermesvm01 lost passwordless SSH
+in from yogaman. The managed sshd dropin (`99-hermes-automation.conf`,
+written by `configure-hermes-ssh.sh`) had `AllowUsers hermes` — a single-user
+list. rahlquist@yogaman's key was already installed in
+`/home/rahlquist/.ssh/authorized_keys` on hermesvm01, but sshd rejected the
+login *before* key auth ran because rahlquist wasn't on the allowlist. The
+fix on the live box was one line — `AllowUsers hermes rahlquist` — but the
+config was fragile: any re-run of the generator script would clobber the
+list back to a single user and lock the admin out again.
+
+**Fix (root cause, reusable):** two new scripts in this repo that recreate
+the whole trust setup on a fresh Linux install and make the allowlist
+clobber-proof by construction.
+
+- `ssh-hermes-user.sh` (new): creates the dedicated `hermes` automation
+  account (no sudo by default, `--grant-sudo` opt-in) and writes the
+  hardened sshd dropin. The `AllowUsers` line is a MERGE of the existing
+  dropin's entries plus `--allow` flags — existing users are always
+  preserved, so re-runs can never lock anyone out. Backs up the previous
+  dropin to `/etc/ssh/hermes-backups/`, validates with `sshd -t`, reloads
+  the service. Idempotent.
+- `ssh-trust-pair.sh` (new): generates ed25519 keypairs for the admin user
+  and the `hermes` user if missing, then installs this host's pubkeys into
+  the peer's `authorized_keys` (admin → admin, hermes → hermes). Run on
+  BOTH hosts to complete both directions. First push to a fresh peer
+  prompts for the peer's password; afterwards fully key-based. Idempotent.
+- Docs: `README.md` — new "SSH trust between hosts" section with a
+  two-machine fresh-install walkthrough; files list updated.
+
+**Apply order (fresh pair A/B):** on A: `ssh-hermes-user.sh --allow <admin>`
+then `ssh-trust-pair.sh --peer B`; on B: same, pointed back at A. Verify
+with `ssh -o BatchMode=yes <user>@<peer> true` in each direction.
+
 ## Network: permanent NIC name lan0, ending the enpXs0-rename breakage (2026-07-23)
 
 **Incident:** the RTX 5060 Ti reinstall (dual-GPU work below) shifted PCI
