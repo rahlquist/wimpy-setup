@@ -1,0 +1,32 @@
+  ┌─ detected ─────────────────────────────────────────────
+  │ source       : hf
+  │ repo         : unsloth/Muse-Glimmer-30B-GGUF
+  │ file         : Muse-Glimmer-30B-UD-Q4_K_XL.gguf
+  │ llama-server : /usr/local/bin/llama-server
+  │ gpu device   : ROCm0  (pin: HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a)
+  │ llama-swap   : /home/rahlquist/wimpy-setup/llama-swap-config.yaml
+  │ models dir   : /home/rahlquist/.cache/llama.cpp
+  │ ctx request  : 64000
+  │ cpu MoE      : none
+  └────────────────────────────────────────────────────────
+path=/home/rahlquist/.cache/llama.cpp/.fetch.5feQEZ/Muse-Glimmer-30B-UD-Q4_K_XL.gguf
+[32m[OK][0m   acquired: /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q4_K_XL.gguf (15G)
+[33m[!!][0m   GGUF native context 131072 exceeds the 65536 working cap; registering at ctx=65536.
+[33m[!!][0m   If the model fails to load within the health window at ctx=65536, lower -c further to fit VRAM.
+  │ architecture : muse-glimmer
+  │ native ctx   : 131072
+  │ model bytes  : 15878222368
+  │ CUDA decision: NOT SUPPORTED — estimated required 17G exceeds free 16G 
+[36m[..][0m   smoke test: ctx=65536 (capped at 65536 (native 131072 exceeds R9700 VRAM headroom)) device=ROCm0 cpu-moe=none
+[32m[OK][0m   loaded, generated, and healthy at ctx=65536 on ROCm0
+[32m[OK][0m   registered 'muse-glimmer-30b-ud-q4-k-xl' in /home/rahlquist/wimpy-setup/llama-swap-config.yaml.
+[32m[OK][0m   wrote metadata sidecar: /home/rahlquist/wimpy-setup/model-metadata/muse-glimmer-30b-ud-q4-k-xl.json
+[32m[OK][0m   updated model inventory: /home/rahlquist/wimpy-setup/model-inventory.html
+
+=== fetch-model summary ===
+ROCm support: SUPPORTED — ROCm0 (id=muse-glimmer-30b-ud-q4-k-xl)
+CUDA support: NOT SUPPORTED — estimated required 17G exceeds free 16G  (id=muse-glimmer-30b-ud-q4-k-xl-cuda)
+Model: 15878222368 bytes, configured context: 65536
+Warnings: none
+[36m[..][0m   automatic deployment skipped (--no-deploy).
+[36m[..][0m   repository changes are local only; review, commit, and push manually if desired.

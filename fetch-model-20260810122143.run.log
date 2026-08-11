@@ -1,0 +1,34 @@
+  ┌─ detected ─────────────────────────────────────────────
+  │ source       : hf
+  │ repo         : unsloth/Muse-Glimmer-30B-GGUF
+  │ file         : Muse-Glimmer-30B-UD-Q3_K_XL.gguf
+  │ llama-server : /usr/local/bin/llama-server
+  │ gpu device   : ROCm0  (pin: HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a)
+  │ llama-swap   : /home/rahlquist/wimpy-setup/llama-swap-config.yaml
+  │ models dir   : /home/rahlquist/.cache/llama.cpp
+  │ ctx request  : 64000
+  │ cpu MoE      : none
+  └────────────────────────────────────────────────────────
+[32m[OK][0m   already acquired: /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q3_K_XL.gguf (skipping)
+[33m[!!][0m   GGUF native context 131072 exceeds the 65536 working cap; registering at ctx=65536.
+[33m[!!][0m   If the model fails to load within the health window at ctx=65536, lower -c further to fit VRAM.
+  │ architecture : muse-glimmer
+  │ native ctx   : 131072
+  │ model bytes  : 13360983072
+  │ CUDA decision: MAY-FIT — estimated required 15G vs free 16G; CUDA smoke test pending
+[36m[..][0m   smoke test: ctx=65536 (capped at 65536 (native 131072 exceeds R9700 VRAM headroom)) device=ROCm0 cpu-moe=none
+[32m[OK][0m   loaded, generated, and healthy at ctx=65536 on ROCm0
+[33m[!!][0m   metadata sidecar already exists: /home/rahlquist/wimpy-setup/model-metadata/muse-glimmer-30b-ud-q3-k-xl.json (consistent); primary registration will be skipped.
+[36m[..][0m   CUDA smoke test: ctx=65536 device=CUDA0
+registered CUDA variant 'muse-glimmer-30b-ud-q3-k-xl-cuda'
+
+=== fetch-model summary ===
+ROCm support: SUPPORTED — ROCm0 (id=muse-glimmer-30b-ud-q3-k-xl)
+CUDA support: SUPPORTED — CUDA fit estimate and health check passed (id=muse-glimmer-30b-ud-q3-k-xl-cuda)
+Model: 13360983072 bytes, configured context: 65536
+Warnings: GGUF native context 131072 exceeds the 65536 working cap; registering at ctx=65536.; If the model fails to load within the health window at ctx=65536, lower -c further to fit VRAM.; metadata sidecar already exists: /home/rahlquist/wimpy-setup/model-metadata/muse-glimmer-30b-ud-q3-k-xl.json (consistent); primary registration will be skipped.
+[OK]  installed live config: /etc/llama-swap/config.yaml
+[OK]  llama-swap reloaded the deployed config
+[OK]  backup retained: /etc/llama-swap/config.yaml.20260810122155.autodeploy.BuQ3tH.bak
+[32m[OK][0m   deployed live llama-swap config and verified its API model list
+[36m[..][0m   repository changes are local only; review, commit, and push manually if desired.
