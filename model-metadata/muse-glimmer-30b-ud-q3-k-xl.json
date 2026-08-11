@@ -1,0 +1,20 @@
+{
+  "alias": "muse-glimmer-30b-ud-q3-k-xl",
+  "description": "Muse-Glimmer-30B",
+  "downloaded_at": "2026-08-10T14:53:36+00:00",
+  "filename": "Muse-Glimmer-30B-UD-Q3_K_XL.gguf",
+  "gguf": {
+    "architecture": "muse-glimmer",
+    "block_count": 52,
+    "context_length": 131072,
+    "description": "",
+    "expert_count": 0,
+    "expert_used_count": 0,
+    "name": "Muse-Glimmer-30B"
+  },
+  "model_path": "/home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q3_K_XL.gguf",
+  "n_cpu_moe": null,
+  "native_context": 131072,
+  "repository": "unsloth/Muse-Glimmer-30B-GGUF",
+  "requested_context": 65536
+}

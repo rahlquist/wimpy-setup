@@ -139,7 +139,7 @@ METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
 DEPLOY_SOURCE_CONFIG="${DEPLOY_SOURCE_CONFIG:-$SCRIPT_DIR/llama-swap-config.yaml}"
 DEPLOY_HELPER="${DEPLOY_HELPER:-/usr/local/sbin/llama-swap-deploy}"
 
-NAME=""; CTX="64000"; CTX_REQUESTED=""; ASSUME_YES=1; DO_SMOKE=1; DO_REGISTER=1; DO_DEPLOY=1
+NAME=""; CTX="64000"; CTX_REQUESTED=""; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1; DO_DEPLOY=1
 SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""
 KEEP_SOURCE=0; SOURCE_COPIED=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""; REMOTE_FILE=""
 while [[ $# -gt 0 ]]; do
@@ -329,6 +329,49 @@ if (( ! ASSUME_YES )); then
   [[ "${reply:-Y}" =~ ^[Yy]?$ ]] || { info 'aborted.'; exit 0; }
 fi
 
+# Render a real download progress bar for `hf download`.
+# hf 1.27's CLI suppresses its own tqdm bar even under a TTY (it warns and
+# forces it off), so a redirected run looks frozen. Instead we watch the
+# `*.incomplete` temp blob hf writes under <local-dir>/.cache and draw our own
+# bar. Output goes to /dev/tty (the live terminal) so it does NOT land in the
+# script's tee'd stdout run-log (which would otherwise be full of CRs).
+hf_download_with_progress(){
+  local repo="$1" file="$2" dest="$3"
+  local total=0
+  total="$(curl -sIL "https://huggingface.co/${repo}/resolve/main/${file}" 2>/dev/null \
+            | awk 'BEGIN{IGNORECASE=1} /^content-length:/ {c=$2} END{print c+0}')"
+  total="${total:-0}"
+  local inc="$dest/.cache/huggingface/download" pid cur=0 last=0
+  local tty="/dev/tty"; [[ -c "$tty" ]] || tty="/dev/stderr"
+  # Logged one-liner (stdout -> run-log) so the download is still auditable.
+  printf '[..]   downloading %s (%s)\n' "$file" "$(numfmt --to=iec "$total" 2>/dev/null || echo "$total")" >&1
+  hf download "$repo" "$file" --local-dir "$dest" >/dev/null 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    cur=0
+    if [[ -d "$inc" ]]; then
+      cur="$(find "$inc" -name '*.incomplete' -printf '%s\n' 2>/dev/null | sort -n | tail -1)"
+      cur="${cur:-0}"
+    fi
+    if (( total > 0 )); then
+      printf '\033[36m[..]\033[0m   %s  %3d%%  %s / %s\033[K\r' \
+        "$file" "$(( cur * 100 / total ))" \
+        "$(numfmt --to=iec "$cur" 2>/dev/null || echo "$cur")" \
+        "$(numfmt --to=iec "$total" 2>/dev/null || echo "$total")" >"$tty"
+    else
+      printf '\033[36m[..]\033[0m   %s  %s\033[K\r' \
+        "$file" "$(numfmt --to=iec "$cur" 2>/dev/null || echo "$cur")" >"$tty"
+    fi
+    last="$cur"
+    sleep 1
+  done
+  wait "$pid"; local rc=$?
+  local done_size=$(( total > 0 ? total : last ))
+  printf '\033[2K\r\033[36m[..]\033[0m   %s downloaded (%s)\n' \
+    "$file" "$(numfmt --to=iec "$done_size" 2>/dev/null || echo "$done_size")" >"$tty"
+  return "$rc"
+}
+
 acquire_model(){
   mkdir -p "$MODELS_DIR" || die "cannot create models directory: $MODELS_DIR"
   MODEL_PATH="$MODELS_DIR/$FILE"
@@ -341,7 +384,7 @@ acquire_model(){
   case "$SRC_CLASS" in
     hf)
       for ((attempt=1; attempt<=MAX_RETRIES; attempt++)); do
-        if hf download "$REPO_ID" "$REMOTE_FILE" --local-dir "$workdir" &&
+        if hf_download_with_progress "$REPO_ID" "$REMOTE_FILE" "$workdir" &&
            [[ -f "$workdir/$REMOTE_FILE" ]]; then
           candidate="$workdir/$REMOTE_FILE"; break; fi
         rm -f -- "$workdir/$REMOTE_FILE"

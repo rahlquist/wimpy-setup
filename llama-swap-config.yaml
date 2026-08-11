@@ -72,6 +72,7 @@ groups:
     swap: true          # one model at a time on the single R9700
     exclusive: false    # do NOT unload the nvidia group when an AMD model loads
     members:
+      - "muse-glimmer-30b-ud-q2-k-xl"
       - "ornith-1-0-35b-ud-q4-k-xl"
       - "qwen3-30b-a3b-instruct-2507-ud-q5-k-xl"
       - "qwen-qwen3-30b-a3b-instruct-2507-q6-k-l"
@@ -107,6 +108,8 @@ groups:
     swap: true          # one model at a time on the single 5060 Ti
     exclusive: false    # do NOT unload the amd group when a CUDA model loads
     members:
+      - "muse-glimmer-30b-ud-q2-k-xl-cuda"
+      - "muse-glimmer-30b-ud-q3-k-xl-cuda"
       - "qwen2.5-coder-14b-cuda"
       - "gemma-3-12b-cuda"
       - "qwen3.5-9b-q6-cuda"
@@ -129,6 +132,27 @@ groups:
       - "ling-mini-2-q6-cuda"
 
 models:
+  "muse-glimmer-30b-ud-q2-k-xl-cuda":
+    ttl: 300
+    env: ["CUDA_VISIBLE_DEVICES=0"]
+    cmd: |
+      /opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q2_K_XL.gguf
+      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
+  "muse-glimmer-30b-ud-q2-k-xl":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q2_K_XL.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
+  "muse-glimmer-30b-ud-q3-k-xl-cuda":
+    ttl: 300
+    env: ["CUDA_VISIBLE_DEVICES=0"]
+    cmd: |
+      /opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q3_K_XL.gguf
+      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
   "qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-iq2-m":
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
