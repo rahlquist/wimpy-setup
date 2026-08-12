@@ -71,13 +71,15 @@ run_pass() {
   )
   [[ -n "$FORCE_RUN" ]] && args+=(--force-run)
   "${args[@]}" 2>&1 | tee -a "$LOG"
-  echo "[$(date -u +%FT%TZ)] === $label pass done (rc=${PIPESTATUS[0]}) ===" | tee -a "$LOG"
+  local rc=${PIPESTATUS[0]}
+  echo "[$(date -u +%FT%TZ)] === $label pass done (rc=$rc) ===" | tee -a "$LOG"
+  return "$rc"
 }
 
 # R9700 (ROCm) first, then RTX 5060 Ti (CUDA). Sequential to avoid both GPUs
 # being monopolized at once (the R9700 is also the live inference card).
-run_pass "amd-r9700-rocm" "$ROCm_BIN" "/tmp/model_watcher.rocm.lock"
-run_pass "nvidia-5060ti-cuda" "$CUDA_BIN" "/tmp/model_watcher.cuda.lock"
+run_pass "amd-r9700-rocm" "$ROCm_BIN" "/tmp/model_watcher.rocm.lock" || exit $?
+run_pass "nvidia-5060ti-cuda" "$CUDA_BIN" "/tmp/model_watcher.cuda.lock" || exit $?
 
 # Regenerate the HTML report from whatever is now in the DB.
 echo "[$(date -u +%FT%TZ)] === regenerating report ===" | tee -a "$LOG"

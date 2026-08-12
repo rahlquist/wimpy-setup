@@ -209,6 +209,8 @@ def main():
     ap.add_argument("--models-dir", required=True)
     ap.add_argument("--db", required=True)
     ap.add_argument("--csv", required=True)
+    ap.add_argument("--config", required=True,
+                    help="llama-swap config providing explicit model GPU groups")
     ap.add_argument("--bench-bin", default="llama-bench")
     ap.add_argument("--gpu-class", choices=("rocm", "cuda"), required=True)
     ap.add_argument("--device", required=True)
@@ -235,6 +237,7 @@ def main():
     log("watcher started")
     new_models = scan_and_register(args.models_dir, args.db)
     log(f"scan complete, {new_models} new model(s) registered")
+    gpu_classes = model_gpu_classes(args.config)
 
     if not args.force_run and not in_window(now_et()):
         log("outside 3:00-5:00 AM ET window, exiting without benchmarking")
@@ -246,7 +249,7 @@ def main():
         log(f"current GPU: {current_gpu} — selecting {args.gpu_class} models never benchmarked on it")
 
     while args.force_run or in_window(now_et()):
-        pending = [p for p in get_pending_models(args.db, current_gpu, args.gpu_class)
+        pending = [p for p in get_pending_models(args.db, current_gpu, args.gpu_class, gpu_classes)
                    if p not in attempted_this_session]
         if not pending:
             if args.force_run:
