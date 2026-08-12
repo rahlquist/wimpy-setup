@@ -38,6 +38,7 @@ PY="/usr/bin/python3"
 WATCHER="$BENCH_DIR/model_watcher.py"
 REPORTER="$BENCH_DIR/report.py"
 LOG="$BENCH_DIR/watcher.log"
+CONFIG="/home/rahlquist/wimpy-setup/llama-swap-config.yaml"
 
 ROCm_BIN="/usr/local/bin/llama-bench"      # ROCm build -> AMD R9700
 CUDA_BIN="/opt/llama-cuda/bin/llama-bench" # CUDA build -> RTX 5060 Ti
@@ -51,12 +52,22 @@ run_pass() {
   fi
   # Build the command as an array so we only append --force-run when set
   # (an empty string would otherwise be passed as a stray arg to the watcher).
+  local gpu_class device expected_gpu
+  if [[ "$label" == amd-* ]]; then
+    gpu_class="rocm"; device="ROCm0"; expected_gpu="AMD Radeon AI PRO R9700"
+  else
+    gpu_class="cuda"; device="CUDA0"; expected_gpu="NVIDIA GeForce RTX 5060 Ti"
+  fi
   local args=(
     "$PY" "$WATCHER"
     --models-dir "$MODELS_DIR"
     --db "$DB" --csv "$CSV"
+    --config "$CONFIG"
     --bench-bin "$bin"
     --lockfile "$lock"
+    --gpu-class "$gpu_class"
+    --device "$device"
+    --expected-gpu "$expected_gpu"
   )
   [[ -n "$FORCE_RUN" ]] && args+=(--force-run)
   "${args[@]}" 2>&1 | tee -a "$LOG"
