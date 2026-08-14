@@ -930,6 +930,7 @@ if (( CUDA_SUPPORTED )) && (( DO_REGISTER )) && [[ -x "$CUDA_SERVER" ]]; then
       "--n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 $CTX_TEXT --jinja" \
       '--host 0.0.0.0 --port ${PORT} --metrics' > "$CUDA_COMMAND_FILE"
     CUDA_METADATA_JSON="$METADATA_JSON"
+    set +e
     python3 "$SCRIPT_DIR/tools/register_model_variant.py" \
       --config "$CONFIG" --name "$CUDA_NAME" --group nvidia-5060ti --ttl "$TTL" \
       --env 'CUDA_VISIBLE_DEVICES=0' --command-file "$CUDA_COMMAND_FILE" \
@@ -937,8 +938,15 @@ if (( CUDA_SUPPORTED )) && (( DO_REGISTER )) && [[ -x "$CUDA_SERVER" ]]; then
       --inventory-renderer "$INVENTORY_RENDERER" --metadata-json "$CUDA_METADATA_JSON" \
       --repository "$REPO_ID" --filename "$FILE" --model-path "$MODEL_PATH" \
       --effective-context "$EFFECTIVE_CTX" --native-context "$NATIVE_CTX" \
-      --cpu-moe "$CPU_MOE" --description "$DESCRIPTION" || die "CUDA variant registration failed"
+      --cpu-moe "$CPU_MOE" --description "$DESCRIPTION"
+    cuda_rc=$?
+    set -e
     rm -f "$CUDA_COMMAND_FILE"
+    case "$cuda_rc" in
+      0) ok "registered CUDA variant '$CUDA_NAME'.";;
+      3) warn "CUDA variant '$CUDA_NAME' already exists; config untouched.";;
+      *) die "CUDA variant registration failed";;
+    esac
   fi
 fi
 
