@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-"""Read selected GGUF metadata without loading tensors or third-party packages."""
+"""Read selected GGUF metadata without loading tensors or third-party packages.
+
+Also emits best-effort multimodal signals so callers can decide whether a
+model needs an external --mmproj projector file. The authoritative source for
+"which projector file" remains the model's source repository file listing; the
+signals here only narrow the search and guard against passing a projector to a
+model that embeds its own.
+"""
 
 from __future__ import annotations
 
 import json
+import re
 import struct
 import sys
 from pathlib import Path
@@ -23,6 +31,26 @@ SCALAR_FORMATS = {
     11: "<q",  # int64
     12: "<d",  # float64
 }
+SCALAR_SIZE = {k: struct.calcsize(v) for k, v in SCALAR_FORMATS.items()}  # type-id -> byte size
+
+# Multimodal architectures whose projector is MERGED into the main GGUF.
+# These must never receive an external --mmproj file.
+EMBEDDED_MULTIMODAL_ARCHS = {
+    "qwen2_vl", "qwen2_5_vl", "qwen3_vl", "qwen3_5_vl",
+    "smolvlm", "smollm2", "pixtral", "molmo", "ovis", "janus",
+}
+# Architectures that are multimodal AND require a separate --mmproj file.
+# (llama is intentionally excluded: a text llama and a llama-vision model share
+#  the same architecture string in the main GGUF, so the repo file listing is
+#  the only reliable arbiter for llama-family vision models.)
+EXTERNAL_PROJECTOR_ARCHS = {
+    "gemma", "gemma2", "gemma3", "minicpmv", "phi3v",
+    "internvl", "idefics", "mistral", "llava", "deepseek_vl",
+}
+
+VISION_KEY_RE = re.compile(
+    r"(mmproj|mm_projector|projector|vision_tower|visual|image_encoder|"
+    r"vision.*(embd|block|proj)|merger|resampler)", re.IGNORECASE)
 
 
 def read_exact(handle: BinaryIO, length: int) -> bytes:
@@ -46,8 +74,8 @@ def read_string(handle: BinaryIO) -> str:
 
 
 def skip_value(handle: BinaryIO, value_type: int) -> None:
-    if value_type in SCALAR_FORMATS:
-        handle.seek(struct.calcsize(SCALAR_FORMATS[value_type]), 1)
+    if value_type in SCALAR_SIZE:
+        handle.seek(SCALAR_SIZE[value_type], 1)
         return
     if value_type == 8:  # string
         handle.seek(read_u64(handle), 1)
@@ -62,8 +90,8 @@ def skip_value(handle: BinaryIO, value_type: int) -> None:
 
 
 def read_value(handle: BinaryIO, value_type: int) -> Any:
-    if value_type in SCALAR_FORMATS:
-        return struct.unpack(SCALAR_FORMATS[value_type], read_exact(handle, struct.calcsize(SCALAR_FORMATS[value_type])))[0]
+    if value_type in SCALAR_SIZE:
+        return struct.unpack(SCALAR_FORMATS[value_type], read_exact(handle, SCALAR_SIZE[value_type]))[0]
     if value_type == 8:
         return read_string(handle)
     raise ValueError(f"cannot read selected GGUF metadata type {value_type}")
@@ -95,9 +123,12 @@ def read_metadata(path: Path) -> dict[str, Any]:
         if metadata_count > 1_000_000:
             raise ValueError("unreasonable GGUF metadata count")
 
+        embedded = False
         for _ in range(metadata_count):
             key = read_string(handle)
             value_type = read_u32(handle)
+            if VISION_KEY_RE.search(key):
+                embedded = True
             if key in wanted_exact or key.endswith(tuple(wanted_suffixes)):
                 result[key] = read_value(handle, value_type)
             else:
@@ -106,6 +137,16 @@ def read_metadata(path: Path) -> dict[str, Any]:
     architecture = result.get("general.architecture")
     if not isinstance(architecture, str) or not architecture:
         raise ValueError("GGUF is missing general.architecture")
+
+    multimodal = bool(architecture) and (
+        embedded
+        or architecture in EMBEDDED_MULTIMODAL_ARCHS
+        or architecture in EXTERNAL_PROJECTOR_ARCHS
+    )
+    needs_external = bool(multimodal and not embedded and architecture in EXTERNAL_PROJECTOR_ARCHS)
+    # llama-family: text vs vision cannot be distinguished from the main GGUF.
+    # Surface it so the caller can require an explicit --mmproj decision.
+    ambiguous_vision = (architecture == "llama" and not embedded)
 
     prefix = f"{architecture}."
     output = {
@@ -121,6 +162,10 @@ def read_metadata(path: Path) -> dict[str, Any]:
         "attention_value_length": result.get(prefix + "attention.value_length"),
         "name": result.get("general.name", ""),
         "description": result.get("general.description", ""),
+        "multimodal": multimodal,
+        "embedded_projector": embedded,
+        "needs_external_projector": needs_external,
+        "ambiguous_vision": ambiguous_vision,
     }
     for field in ("context_length", "block_count", "expert_count", "expert_used_count",
                   "embedding_length", "attention_head_count", "attention_head_count_kv",

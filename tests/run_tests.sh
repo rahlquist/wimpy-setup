@@ -39,6 +39,7 @@ run_fetch() {
     MODELS_DIR="$td/models" \
     SMOKE_PORT=$((19191 + (RANDOM % 1000))) \
     DEPLOY_HELPER=/bin/false \
+    MMPROJ_RESOLVER="$STUBS/mmproj-resolver" \
     HF_STUB_LOG="$td/hf.calls" \
     PATH="$STUBS:$PATH" \
     bash "$SCRIPT" "$@"

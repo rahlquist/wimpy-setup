@@ -19,6 +19,8 @@
 #   * CPU-MoE offload is absent unless the user explicitly supplies N;
 #   * local source files are removed after a successful pipeline; pass
 #     --keep-source to retain the original.
+#   * HF vision repos get a repo-verified projector automatically; use
+#     --no-mmproj only when deliberately forcing a text-only registration.
 set -euo pipefail
 
 err(){ printf '\033[31m[ERR]\033[0m  %s\n' "$*" >&2; }
@@ -138,10 +140,12 @@ INVENTORY_PATH="${INVENTORY_PATH:-$SCRIPT_DIR/model-inventory.html}"
 METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
 DEPLOY_SOURCE_CONFIG="${DEPLOY_SOURCE_CONFIG:-$SCRIPT_DIR/llama-swap-config.yaml}"
 DEPLOY_HELPER="${DEPLOY_HELPER:-/usr/local/sbin/llama-swap-deploy}"
+MMPROJ_RESOLVER="${MMPROJ_RESOLVER:-$SCRIPT_DIR/tools/resolve_and_fetch_mmproj.py}"
 
-NAME=""; CTX="64000"; CTX_REQUESTED=""; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1; DO_DEPLOY=1
+NAME=""; CTX="64000"; CTX_REQUESTED=""; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1; DO_DEPLOY=1; DO_MMPROJ=1
 SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""
 KEEP_SOURCE=0; SOURCE_COPIED=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""; REMOTE_FILE=""
+MMPROJ_PATH=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -n) NAME="${2:-}"; shift 2;;
@@ -153,6 +157,7 @@ while [[ $# -gt 0 ]]; do
     --keep-source) KEEP_SOURCE=1; shift;;
     --no-register) DO_REGISTER=0; shift;;
     --no-deploy) DO_DEPLOY=0; shift;;
+    --no-mmproj) DO_MMPROJ=0; shift;;
     -h|--help)
       sed -n '2,21p' "$0"
       exit 0;;
@@ -493,9 +498,74 @@ if [[ -z "$NAME" ]]; then
 fi
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "model id must contain only lowercase letters, digits, and hyphens"
 
+# --- Multimodal projector (external mmproj-F16.gguf and friends) ------------
+# Vision / image-text models frequently ship an external projector file with a
+# shared upstream name (e.g. mmproj-F16.gguf) that would collide with other
+# models' projectors if downloaded verbatim. This script finds that projector
+# from the Hugging Face repo tree (NOT from local GGUF keys — the repo is the
+# source of truth for whether a model is multimodal), downloads it, and renames
+# it to <model-stem>.mmproj.gguf so it never collides in the shared models dir.
+#
+# Rules:
+#   * For HF-sourced models, resolve the projector via the repo tree
+#     (resolve_and_fetch_mmproj.py). A failed lookup is fatal by default: this
+#     prevents registering a vision model as text-only. Use --no-mmproj only
+#     when deliberately forcing a text-only registration.
+#   * For URL / local sources there is no repo context to resolve against, so the
+#     projector is left unset (the operator can place it by hand and re-run, or
+#     request it explicitly).
+MMPROJ_PATH=""
+fetch_mmproj() {
+  # Sets MMPROJ_PATH (empty if none / not fetchable). Must be called AFTER NAME
+  # and FILE are known and only for HF-sourced models.
+  if (( DO_MMPROJ == 0 )); then
+    return 0
+  fi
+  if [[ "$SRC_CLASS" != hf ]]; then
+    return 0
+  fi
+  local resolver="$MMPROJ_RESOLVER"
+  if [[ ! -f "$resolver" ]]; then
+    die "mmproj resolver helper missing: $resolver (use --no-mmproj to override)"
+  fi
+  local rc=0 resolver_output resolver_error
+  resolver_error="$(mktemp /tmp/fetch-model.mmproj.XXXXXX.err)"
+  resolver_output="$(python3 "$resolver" "$REPO_ID" "$FILE" 2>"$resolver_error")" || rc=$?
+  if (( rc != 0 )); then
+    local reason
+    reason="$(tr '\n' ' ' <"$resolver_error")"
+    rm -f -- "$resolver_error"
+    die "mmproj resolution failed; refusing text-only registration: $reason (use --no-mmproj to override)"
+  fi
+  rm -f -- "$resolver_error"
+  MMPROJ_PATH="${resolver_output:-}"
+  if [[ -z "$MMPROJ_PATH" ]]; then
+    # Empty stdout means the HF repo has no external projector.
+    return 0
+  fi
+  [[ -f "$MMPROJ_PATH" ]] || {
+    warn "mmproj resolver returned a missing path; continuing without projector: $MMPROJ_PATH"
+    MMPROJ_PATH=""
+    return 0
+  }
+  ok "acquired multimodal projector: $MMPROJ_PATH ($(du -h "$MMPROJ_PATH" | cut -f1))"
+  return 0
+}
+#
+# NOTE: HF_TOKEN must be available in the environment for projector resolution
+# on private/gated repos. A failed lookup aborts registration; use --no-mmproj
+# only when deliberately forcing a text-only registration.
+
+# Fetch the external projector for multimodal models (HF-sourced only).
+fetch_mmproj
+
 MOE_ARG=()
 [[ -n "$CPU_MOE" ]] && MOE_ARG=(--n-cpu-moe "$CPU_MOE")
 CTX_ARG=()
+MMPROJ_ARG=()
+if [[ -n "$MMPROJ_PATH" ]]; then
+  MMPROJ_ARG=(--mmproj "$MMPROJ_PATH")
+fi
 # Emit --ctx-size when the model needs the Hermes-compatibility floor (native < 64000),
 # when the operator explicitly requested a context via -c, OR when we capped the
 # native context to fit VRAM headroom (CTX_CAPPED).
@@ -505,7 +575,7 @@ fi
 CTX_TEXT="${CTX_ARG[*]:-}"
 CMD_LINES=(
   "$LLAMA_SERVER --model $MODEL_PATH"
-  "--n-gpu-layers 99 ${MOE_ARG[*]:-} --device $GPU_DEVICE --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 $CTX_TEXT --jinja"
+  "--n-gpu-layers 99 ${MOE_ARG[*]:-} --device $GPU_DEVICE --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 $CTX_TEXT ${MMPROJ_ARG[*]:-} --jinja"
   '--host 0.0.0.0 --port ${PORT} --metrics'
 )
 # Remove the harmless double space when MoE offload is not configured.
@@ -579,7 +649,7 @@ smoke_test(){
   SMOKE_LOG="$(mktemp /tmp/fetch-model.smoke.XXXXXX.log)"
   info "smoke test: ctx=$EFFECTIVE_CTX ($CTX_MODE) device=$GPU_DEVICE cpu-moe=${CPU_MOE:-none}"
   env "${GPU_ENV_VAR}=${GPU_PIN_VALUE}" "$LLAMA_SERVER" --model "$MODEL_PATH" --n-gpu-layers 99 "${MOE_ARG[@]}" \
-    --device "$GPU_DEVICE" --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 "${CTX_ARG[@]}" --jinja \
+    --device "$GPU_DEVICE" --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 "${CTX_ARG[@]}" "${MMPROJ_ARG[@]}" --jinja \
     --host 127.0.0.1 --port "$SMOKE_PORT" >"$SMOKE_LOG" 2>&1 &
   SERVER_PID=$!
   local i code ready=0
@@ -790,15 +860,17 @@ esac
 # avoids putting untracked sidecars in a model cache, and retains inspection
 # evidence even when a model is moved or re-downloaded.
 set +e
-python3 - "$SIDECAR_TMP" "$NAME" "$REPO_ID" "$FILE" "$MODEL_PATH" "$EFFECTIVE_CTX" "$NATIVE_CTX" "$CPU_MOE" "$METADATA_JSON" "$DESCRIPTION" <<'PY'
+python3 - "$SIDECAR_TMP" "$NAME" "$REPO_ID" "$FILE" "$MODEL_PATH" "$EFFECTIVE_CTX" "$NATIVE_CTX" "$CPU_MOE" "$MMPROJ_PATH" "$METADATA_JSON" "$DESCRIPTION" <<'PY'
 import json,sys,datetime
-out,alias,repo,file,path,ctx,native,cpu,metadata,description=sys.argv[1:]
+out,alias,repo,file,path,ctx,native,cpu,mmproj_path,metadata,description=sys.argv[1:]
 m=json.loads(metadata)
 data={
   'alias':alias, 'repository':repo, 'filename':file, 'model_path':path,
   'downloaded_at':datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'),
   'requested_context':int(ctx), 'native_context':int(native),
-  'n_cpu_moe':int(cpu) if cpu else None, 'gguf':m,
+  'n_cpu_moe':int(cpu) if cpu else None,
+  'mmproj_path':mmproj_path or None,
+  'gguf':m,
   'description':description or m.get('name') or f'GGUF from {repo}',
 }
 with open(out,'w',encoding='utf-8') as f: json.dump(data,f,indent=2,sort_keys=True); f.write('\n')
