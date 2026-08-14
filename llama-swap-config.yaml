@@ -107,6 +107,8 @@ groups:
       - "muse-glimmer-30b-ud-q4-k-xl"
       - "qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-iq3-m"
       - "qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-iq2-m"
+      - "muse-glimmer-30b-ud-q6-k-xl"
+      - "gemma-4-e4b-uncensored-hauhaucs-aggressive-q8-k-p"
 
   nvidia-5060ti:
     swap: true          # one model at a time on the single 5060 Ti
@@ -163,6 +165,7 @@ models:
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
     cmd: |
       /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q2_K_XL.gguf
+      --mmproj /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q2_K_XL.mmproj.gguf
       --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
       --host 0.0.0.0 --port ${PORT} --metrics
   "muse-glimmer-30b-ud-q3-k-xl-cuda":
@@ -177,6 +180,7 @@ models:
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
     cmd: |
       /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ2_M.gguf
+      --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ2_M.mmproj.gguf
       --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
       --host 0.0.0.0 --port ${PORT} --metrics
   "qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-iq3-m":
@@ -184,6 +188,7 @@ models:
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
     cmd: |
       /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ3_M.gguf
+      --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ3_M.mmproj.gguf
       --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
       --host 0.0.0.0 --port ${PORT} --metrics
   "muse-glimmer-30b-ud-q4-k-xl":
@@ -191,6 +196,7 @@ models:
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
     cmd: |
       /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q4_K_XL.gguf
+      --mmproj /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q4_K_XL.mmproj.gguf
       --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
       --host 0.0.0.0 --port ${PORT} --metrics
   "muse-glimmer-30b-ud-q3-k-xl":
@@ -198,6 +204,7 @@ models:
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
     cmd: |
       /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q3_K_XL.gguf
+      --mmproj /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q3_K_XL.mmproj.gguf
       --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
       --host 0.0.0.0 --port ${PORT} --metrics
   "muse-glimmer-30b-ud-q6-k-xl":
@@ -212,6 +219,7 @@ models:
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
     cmd: |
       /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf
+      --mmproj /home/rahlquist/.cache/llama.cpp/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q8_K_P.mmproj.gguf
       --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
       --host 0.0.0.0 --port ${PORT} --metrics
   "model-f16":
@@ -429,6 +437,7 @@ models:
     cmd: >
       /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.gguf
+        --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.mmproj.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
         --host 0.0.0.0 --port ${PORT} --jinja --metrics
@@ -449,6 +458,7 @@ models:
     cmd: >
       /usr/local/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.gguf
+        --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.mmproj.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device ROCm0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
         --host 0.0.0.0 --port ${PORT} --jinja --metrics
@@ -527,6 +537,7 @@ models:
     env: ["CUDA_VISIBLE_DEVICES=0"]
     cmd: |
       /opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/OvisOCR2-F16.gguf
+      --mmproj /home/rahlquist/.cache/llama.cpp/OvisOCR2-F16.mmproj.gguf
       --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -672,6 +683,7 @@ models:
     cmd: >
       /opt/llama-cuda/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.gguf
+        --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.mmproj.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device CUDA0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
         --host 0.0.0.0 --port ${PORT} --jinja --metrics
@@ -682,6 +694,7 @@ models:
     cmd: >
       /opt/llama-cuda/bin/llama-server
         --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.gguf
+        --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.mmproj.gguf
         --ctx-size 65536 --n-gpu-layers 99 --device CUDA0
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
         --host 0.0.0.0 --port ${PORT} --jinja --metrics
