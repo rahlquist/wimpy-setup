@@ -141,14 +141,16 @@ METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
 DEPLOY_SOURCE_CONFIG="${DEPLOY_SOURCE_CONFIG:-$SCRIPT_DIR/llama-swap-config.yaml}"
 DEPLOY_HELPER="${DEPLOY_HELPER:-/usr/local/sbin/llama-swap-deploy}"
 MMPROJ_RESOLVER="${MMPROJ_RESOLVER:-$SCRIPT_DIR/tools/resolve_and_fetch_mmproj.py}"
+REPO_META_TOOL="${REPO_META_TOOL:-$SCRIPT_DIR/tools/fetch_repo_metadata.py}"
 
 NAME=""; CTX="64000"; CTX_REQUESTED=""; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1; DO_DEPLOY=1; DO_MMPROJ=1
+NAME_EXPLICIT=""
 SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""
 KEEP_SOURCE=0; SOURCE_COPIED=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""; REMOTE_FILE=""
 MMPROJ_PATH=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -n) NAME="${2:-}"; shift 2;;
+    -n) NAME="${2:-}"; NAME_EXPLICIT=1; shift 2;;
     -c) CTX="${2:-}"; CTX_REQUESTED=1; shift 2;;
     -d) DEVICE_OVERRIDE="${2:-}"; shift 2;;
     --n-cpu-moe) CPU_MOE="${2:-}"; shift 2;;
@@ -380,9 +382,76 @@ hf_download_with_progress(){
 acquire_model(){
   mkdir -p "$MODELS_DIR" || die "cannot create models directory: $MODELS_DIR"
   MODEL_PATH="$MODELS_DIR/$FILE"
+  REPO_META_JSON=""
+  REPO_SHA=""
+  REPO_HAS_SHA=0
+  # Repo-namespaced path: used when the plain filename already belongs to a
+  # different repo/revision, so both models can coexist in the cache. This is
+  # exactly the same-name/different-repo case (e.g. bartowski vs unsloth both
+  # shipping Qwen3.8-27B-Q5_K_M.gguf). The plain path stays the default so the
+  # existing model set is untouched.
+  REPO_KEY=""
+  NAMESPACED_PATH=""
+  if [[ "$SRC_CLASS" == hf ]]; then
+    REPO_KEY="$(printf '%s' "$REPO_ID" | tr '/:' '__')"
+    NAMESPACED_PATH="$MODELS_DIR/${REPO_KEY}__${FILE}"
+  fi
+  # For HF sources, fetch repo metadata first: it carries the file's size and
+  # content sha256 (when the repo advertises one) which we use to (a) tell
+  # whether an already-present plain file is genuinely THIS repo's file or a
+  # different repo's same-named file, and (b) verify a fresh download before
+  # install. Failure is fatal: we do not register a model whose provenance we
+  # cannot confirm.
+  if [[ "$SRC_CLASS" == hf ]]; then
+    local repo_rc=0
+    REPO_META_JSON="$(python3 "$REPO_META_TOOL" "$REPO_ID" "$FILE" 2>/dev/null)" || repo_rc=$?
+    if (( repo_rc != 0 )); then
+      die "cannot confirm repo metadata for $REPO_ID/$FILE (repo metadata fetch failed); refusing unverifiable acquisition"
+    fi
+    REPO_SHA="$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); print(d.get("file_sha256",""))' "$REPO_META_JSON" 2>/dev/null || true)"
+    REPO_HAS_SHA=0
+    [[ "$REPO_SHA" =~ ^[0-9a-f]{64}$ ]] && REPO_HAS_SHA=1
+  fi
+  # Decide which path to use.
   if [[ -f "$MODEL_PATH" ]]; then
-    ok "already acquired: $MODEL_PATH (skipping)"
-    return 0
+    # Plain file exists. Is it this repo's file, or someone else's same-named file?
+    local plain_sha=""
+    if (( REPO_HAS_SHA )); then
+      plain_sha="$(sha256sum "$MODEL_PATH" | cut -d' ' -f1)"
+    fi
+    if (( REPO_HAS_SHA )) && [[ "$plain_sha" != "$REPO_SHA" ]]; then
+      # Different repo/revision owns the plain name. Keep it, and give THIS repo
+      # its own namespaced file so both coexist. If the namespaced file is
+      # already present and verified, reuse it.
+      warn "filename '$FILE' on disk is a different repo/revision (sha256 mismatch); fetching $REPO_ID under a namespaced name so both models coexist."
+      MODEL_PATH="$NAMESPACED_PATH"
+      if [[ -f "$MODEL_PATH" ]]; then
+        local ns_sha
+        ns_sha="$(sha256sum "$MODEL_PATH" | cut -d' ' -f1)"
+        if [[ "$ns_sha" == "$REPO_SHA" ]]; then
+          ok "already acquired: $MODEL_PATH (skipping; sha256 matches $REPO_ID)"
+          return 0
+        fi
+        warn "namespaced file exists but sha256 mismatch; re-downloading $MODEL_PATH"
+      fi
+    else
+      # Same repo (or no checksum to compare): plain file is fine.
+      ok "already acquired: $MODEL_PATH (skipping; sha256 matches $REPO_ID)"
+      return 0
+    fi
+  elif [[ "$SRC_CLASS" == hf ]] && [[ -f "$NAMESPACED_PATH" ]]; then
+    # No plain file, but a namespaced file from this repo already exists.
+    local ns2_sha=""
+    if (( REPO_HAS_SHA )); then
+      ns2_sha="$(sha256sum "$NAMESPACED_PATH" | cut -d' ' -f1)"
+    fi
+    if (( ! REPO_HAS_SHA )) || [[ "$ns2_sha" == "$REPO_SHA" ]]; then
+      MODEL_PATH="$NAMESPACED_PATH"
+      ok "already acquired: $MODEL_PATH (skipping; sha256 matches $REPO_ID)"
+      return 0
+    fi
+    warn "namespaced file exists but sha256 mismatch; re-downloading $NAMESPACED_PATH"
+    MODEL_PATH="$NAMESPACED_PATH"
   fi
   local workdir candidate attempt
   workdir="$(mktemp -d "$MODELS_DIR/.fetch.XXXXXX")" || die "cannot create acquire temp dir"
@@ -416,6 +485,15 @@ acquire_model(){
   mv -- "$candidate" "$MODEL_PATH" || { rm -rf -- "$workdir"; die "cannot install acquired model: $MODEL_PATH"; }
   rm -rf -- "$workdir"
   [[ -f "$MODEL_PATH" ]] || die "acquire completed but model file not found: $MODEL_PATH"
+  if (( REPO_HAS_SHA )); then
+    local downloaded_sha
+    downloaded_sha="$(sha256sum "$MODEL_PATH" | cut -d' ' -f1)"
+    if [[ "$downloaded_sha" != "$REPO_SHA" ]]; then
+      rm -f -- "$MODEL_PATH"
+      die "downloaded file failed sha256 verification: got $downloaded_sha, repo advertises $REPO_SHA (for $REPO_ID/$FILE); removed corrupt download"
+    fi
+    ok "sha256 verified: $MODEL_PATH"
+  fi
   ok "acquired: $MODEL_PATH ($(du -h "$MODEL_PATH" | cut -f1))"
 }
 set_stage "acquire"
@@ -498,6 +576,28 @@ if [[ -z "$NAME" ]]; then
 fi
 [[ "$NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "model id must contain only lowercase letters, digits, and hyphens"
 
+# Same filename from a DIFFERENT repo must register under its own id so both
+# can coexist (e.g. bartowski vs unsloth both shipping Qwen3.8-27B-Q5_K_M.gguf).
+# If a sidecar already claims this NAME for another repository, scope the id
+# with the repo owner. Explicit -n names are never rewritten.
+if [[ "$SRC_CLASS" == hf ]] && [[ -z "${NAME_EXPLICIT:-}" ]]; then
+  SIDECAR_EXISTING="$METADATA_DIR/$NAME.json"
+  if [[ -f "$SIDECAR_EXISTING" ]]; then
+    existing_repo="$(python3 -c 'import json,sys
+try:
+    print(json.load(open(sys.argv[1])).get("repository",""))
+except Exception:
+    print("")' "$SIDECAR_EXISTING" 2>/dev/null || true)"
+    if [[ -n "$existing_repo" && "$existing_repo" != "$REPO_ID" ]]; then
+      OWNER_PART="$(printf '%s' "${REPO_ID%%/*}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//')"
+      SCOPED_NAME="${OWNER_PART}-${NAME}"
+      info "model id '$NAME' is already registered from $existing_repo; registering this copy as '$SCOPED_NAME' so both models coexist."
+      NAME="$SCOPED_NAME"
+    fi
+  fi
+fi
+[[ "$NAME" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "model id must contain only lowercase letters, digits, and hyphens"
+
 # --- Multimodal projector (external mmproj-F16.gguf and friends) ------------
 # Vision / image-text models frequently ship an external projector file with a
 # shared upstream name (e.g. mmproj-F16.gguf) that would collide with other
@@ -558,6 +658,83 @@ fetch_mmproj() {
 
 # Fetch the external projector for multimodal models (HF-sourced only).
 fetch_mmproj
+
+# --- Assemble the per-model detail block (name/description/capabilities/metadata)
+# This feeds the documented llama-swap per-model fields (config-schema.json):
+#   name, description, capabilities.{in,out,tools,context}, metadata (arbitrary).
+# We record: source repo + URL, file size, HF content sha256 (when advertised),
+# vision capability + the namespaced mmproj filename we assigned, MTP presence
+# and the exact llama.cpp flag needed (--spec-type draft-mtp).
+DETAILS_FILE="$(mktemp /tmp/fetch-model.details.XXXXXX)"
+python3 - "$DETAILS_FILE" "$REPO_META_JSON" "$METADATA_JSON" "$MMPROJ_PATH" "$EFFECTIVE_CTX" "$NATIVE_CTX" <<'PY'
+import json, sys
+out, repo_meta_raw, gguf_raw, mmproj, eff_ctx, native_ctx = sys.argv[1:]
+repo_meta = json.loads(repo_meta_raw or '{}')
+gguf = json.loads(gguf_raw or '{}')
+mmproj_path = mmproj or ''
+vision = bool(mmproj_path) or 'image' in (repo_meta.get('pipeline_tag','') or '').lower()
+has_mtp = bool(gguf.get('has_mtp'))
+name = (repo_meta.get('repo_name') or gguf.get('name') or '').strip()[:128]
+desc = (repo_meta.get('description') or gguf.get('description') or '').strip()[:1024]
+lines = []
+if name:
+    lines.append(f'name: {json.dumps(name)}')
+if desc:
+    lines.append(f'description: {json.dumps(desc)}')
+cap_in = ['text'] + (['image'] if vision else [])
+cap = {
+    'in': cap_in,
+    'out': ['text'],
+    'tools': False,
+    'context': int(eff_ctx or native_ctx or 0) or 0,
+}
+lines.append('capabilities:')
+for k, v in cap.items():
+    if isinstance(v, list):
+        items = ', '.join(json.dumps(x) for x in v)
+        lines.append(f'  {k}: [{items}]')
+    else:
+        lines.append(f'  {k}: {json.dumps(v)}')
+meta = {
+    'source_repo': repo_meta.get('repo_id',''),
+    'repo_url': repo_meta.get('repo_url',''),
+    'file_size_bytes': repo_meta.get('file_size_bytes'),
+    'file_sha256': repo_meta.get('file_sha256') or None,
+    'has_checksum': bool(repo_meta.get('has_checksum')),
+    'vision': vision,
+    'mmproj': mmproj_path or None,
+    'mmproj_filename': mmproj_path.rsplit('/',1)[-1] if mmproj_path else None,
+    'mtp': has_mtp,
+    'mtp_flag': '--spec-type draft-mtp' if has_mtp else None,
+    'mtp_tensor_sample': (gguf.get('mtp_tensor_sample') or [])[:3],
+    'pipeline_tag': repo_meta.get('pipeline_tag','') or None,
+}
+lines.append('metadata:')
+# Manual block-style YAML (relative indent under the metadata: key). Avoids the
+# flow-style quoting/multiline problems of json.dumps output.
+def yaml_scalar(v):
+    if v is None:
+        return 'null'
+    if isinstance(v, bool):
+        return 'true' if v else 'false'
+    if isinstance(v, (int, float)):
+        return str(v)
+    return json.dumps(str(v))
+for k in ('source_repo', 'repo_url', 'file_size_bytes', 'file_sha256', 'has_checksum',
+          'vision', 'mmproj', 'mmproj_filename', 'mtp', 'mtp_flag', 'pipeline_tag'):
+    v = meta.get(k)
+    lines.append(f'  {k}: {yaml_scalar(v)}')
+if meta.get('mtp_tensor_sample'):
+    lines.append('  mtp_tensor_sample:')
+    for t in meta['mtp_tensor_sample'][:3]:
+        lines.append(f'    - {json.dumps(str(t))}')
+open(out, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
+PY
+DETAILS_RC=$?
+if (( DETAILS_RC != 0 )); then
+  rm -f "$DETAILS_FILE"
+  die "failed to assemble model detail block"
+fi
 
 MOE_ARG=()
 [[ -n "$CPU_MOE" ]] && MOE_ARG=(--n-cpu-moe "$CPU_MOE")
@@ -807,9 +984,9 @@ rollback_registration(){
 CMDFILE="$(mktemp /tmp/fetch-model.cmd.XXXXXX)"
 printf '%s\n' "${CMD_LINES[@]}" > "$CMDFILE"
 set +e
-python3 - "$CONFIG" "$NAME" "$TTL" "$CMDFILE" "$GPU_ENV_VAR" "$GPU_PIN_VALUE" <<'PY'
+python3 - "$CONFIG" "$NAME" "$TTL" "$CMDFILE" "$GPU_ENV_VAR" "$GPU_PIN_VALUE" "$DETAILS_FILE" <<'PY'
 import os, re, sys
-cfg, name, ttl, cmdfile, gpu_env, gpu_pin = sys.argv[1:]
+cfg, name, ttl, cmdfile, gpu_env, gpu_pin, details_file = sys.argv[1:]
 with open(cfg, encoding='utf-8') as f: text=f.read()
 lines=text.splitlines()
 # Every model must belong to exactly one GPU group. Add the primary ROCm
@@ -839,7 +1016,12 @@ for line in lines[mi+1:]:
     if m: existing.add(m.group(1))
 if name in existing: raise SystemExit(3)
 with open(cmdfile, encoding='utf-8') as f: command=[x.rstrip('\n') for x in f]
-block=[f'{child_indent}"{name}":', f'{field_indent}ttl: {ttl}', f'{field_indent}env: ["{gpu_env}={gpu_pin}"]', f'{field_indent}cmd: |'] + [cmd_indent+x for x in command]
+detail_lines=[]
+if details_file and os.path.isfile(details_file):
+    # Detail block is emitted with relative indentation (0 base, +2 per level);
+    # re-indent to field level so it nests under the model key correctly.
+    detail_lines=[field_indent + x.rstrip('\n') for x in open(details_file, encoding='utf-8') if x.strip()]
+block=[f'{child_indent}"{name}":', f'{field_indent}ttl: {ttl}', f'{field_indent}env: ["{gpu_env}={gpu_pin}"]'] + detail_lines + [f'{field_indent}cmd: |'] + [cmd_indent+x for x in command]
 new='\n'.join(lines[:mi+1]+block+lines[mi+1:])+'\n'
 if [l for l in new.splitlines() if re.match(r'^\S',l)] != [l for l in text.splitlines() if re.match(r'^\S',l)]:
     raise SystemExit('top-level structure would change')
@@ -849,7 +1031,7 @@ os.replace(tmp,cfg)
 PY
 rc=$?
 set -e
-rm -f "$CMDFILE"
+rm -f "$CMDFILE" "$DETAILS_FILE"
 case "$rc" in
   0) ok "registered '$NAME' in $CONFIG.";;
   3) rm -f -- "$CONFIG_BACKUP" "$SIDECAR_TMP" "$INVENTORY_TMP"; PIPELINE_OK=1; warn "model id '$NAME' already exists; config untouched."; exit 0;;
@@ -860,16 +1042,28 @@ esac
 # avoids putting untracked sidecars in a model cache, and retains inspection
 # evidence even when a model is moved or re-downloaded.
 set +e
-python3 - "$SIDECAR_TMP" "$NAME" "$REPO_ID" "$FILE" "$MODEL_PATH" "$EFFECTIVE_CTX" "$NATIVE_CTX" "$CPU_MOE" "$MMPROJ_PATH" "$METADATA_JSON" "$DESCRIPTION" <<'PY'
+python3 - "$SIDECAR_TMP" "$NAME" "$REPO_ID" "$FILE" "$MODEL_PATH" "$EFFECTIVE_CTX" "$NATIVE_CTX" "$CPU_MOE" "$MMPROJ_PATH" "$METADATA_JSON" "$DESCRIPTION" "$REPO_META_JSON" <<'PY'
 import json,sys,datetime
-out,alias,repo,file,path,ctx,native,cpu,mmproj_path,metadata,description=sys.argv[1:]
+out,alias,repo,file,path,ctx,native,cpu,mmproj_path,metadata,description,repo_meta_raw=sys.argv[1:]
 m=json.loads(metadata)
+repo_meta=json.loads(repo_meta_raw or '{}')
+has_mtp=bool(m.get('has_mtp'))
 data={
   'alias':alias, 'repository':repo, 'filename':file, 'model_path':path,
   'downloaded_at':datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds'),
   'requested_context':int(ctx), 'native_context':int(native),
   'n_cpu_moe':int(cpu) if cpu else None,
   'mmproj_path':mmproj_path or None,
+  'mmproj_filename':mmproj_path.rsplit('/',1)[-1] if mmproj_path else None,
+  'vision':bool(mmproj_path) or ('image' in (repo_meta.get('pipeline_tag','') or '').lower()),
+  'has_mtp':has_mtp,
+  'mtp_flag':'--spec-type draft-mtp' if has_mtp else None,
+  'mtp_tensor_sample':(m.get('mtp_tensor_sample') or [])[:3],
+  'repo_url':repo_meta.get('repo_url',''),
+  'file_size_bytes':repo_meta.get('file_size_bytes'),
+  'file_sha256':repo_meta.get('file_sha256') or None,
+  'has_checksum':bool(repo_meta.get('has_checksum')),
+  'pipeline_tag':repo_meta.get('pipeline_tag','') or None,
   'gguf':m,
   'description':description or m.get('name') or f'GGUF from {repo}',
 }
@@ -938,7 +1132,8 @@ if (( CUDA_SUPPORTED )) && (( DO_REGISTER )) && [[ -x "$CUDA_SERVER" ]]; then
       --inventory-renderer "$INVENTORY_RENDERER" --metadata-json "$CUDA_METADATA_JSON" \
       --repository "$REPO_ID" --filename "$FILE" --model-path "$MODEL_PATH" \
       --effective-context "$EFFECTIVE_CTX" --native-context "$NATIVE_CTX" \
-      --cpu-moe "$CPU_MOE" --description "$DESCRIPTION"
+      --cpu-moe "$CPU_MOE" --description "$DESCRIPTION" \
+      --mmproj-path "$MMPROJ_PATH" --repo-meta-json "$REPO_META_JSON"
     cuda_rc=$?
     set -e
     rm -f "$CUDA_COMMAND_FILE"

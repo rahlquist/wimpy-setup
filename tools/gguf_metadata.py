@@ -134,6 +134,29 @@ def read_metadata(path: Path) -> dict[str, Any]:
             else:
                 skip_value(handle, value_type)
 
+        # --- Tensor-info pass: scan tensor NAMES for MTP / nextn markers ----------
+        # MTP (multi-token prediction) heads appear as per-block tensors like
+        # blk.N.nextn.* (Qwen3-Next family) or blk.N.mtp.*. llama.cpp enables them
+        # with --spec-type draft-mtp. Reading names only (no tensor data).
+        mtp_tensors = []
+        try:
+            tensor_count = _tensor_count
+            for _ in range(tensor_count):
+                tname = read_string(handle)
+                n_dims = read_u32(handle)
+                handle.seek(n_dims * 8, 1)      # dims (u64 each)
+                read_u32(handle)                # type
+                read_u64(handle)                # offset
+                low = tname.lower()
+                if ".nextn." in low or ".mtp." in low or low.endswith(".nextn") or low.startswith("nextn"):
+                    mtp_tensors.append(tname)
+                    if len(mtp_tensors) >= 5:
+                        break  # enough to confirm; stop scanning early
+        except (ValueError, OSError):
+            mtp_tensors = []  # malformed tensor info -> treat as no MTP evidence
+
+        has_mtp = bool(mtp_tensors)
+
     architecture = result.get("general.architecture")
     if not isinstance(architecture, str) or not architecture:
         raise ValueError("GGUF is missing general.architecture")
@@ -166,6 +189,9 @@ def read_metadata(path: Path) -> dict[str, Any]:
         "embedded_projector": embedded,
         "needs_external_projector": needs_external,
         "ambiguous_vision": ambiguous_vision,
+        "has_mtp": has_mtp,
+        "mtp_tensor_sample": mtp_tensors[:5],
+        "mtp_flag": "--spec-type draft-mtp" if has_mtp else None,
     }
     for field in ("context_length", "block_count", "expert_count", "expert_used_count",
                   "embedding_length", "attention_head_count", "attention_head_count_kv",

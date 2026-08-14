@@ -40,6 +40,7 @@ run_fetch() {
     SMOKE_PORT=$((19191 + (RANDOM % 1000))) \
     DEPLOY_HELPER=/bin/false \
     MMPROJ_RESOLVER="$STUBS/mmproj-resolver" \
+    REPO_META_TOOL="$STUBS/fetch-repo-metadata" \
     HF_STUB_LOG="$td/hf.calls" \
     PATH="$STUBS:$PATH" \
     bash "$SCRIPT" "$@"
@@ -203,16 +204,22 @@ check_exit "T16: classify failure exits 1" 1 "$rc"
 [[ -z "$(ls "$td"/fetch-model-*.dossier.md 2>/dev/null)" ]] && ok "T16: no dossier on classify failure" || fail "T16: unexpected dossier"
 rm -rf "$td"
 
-# T17: Name collision (same NAME, different repo/file in sidecar)
+# T17: Same NAME from a DIFFERENT repo → auto-scoped id so both coexist
+# (explicit user requirement: no refusal; both models must be fetchable).
 td="$(make_td)"; mkdir -p "$td/model-metadata"
 printf '{"filename":"different.gguf","repository":"other/repo"}\n' > "$td/model-metadata/model.json"
-config_hash="$(md5sum "$td/llama-swap-config.yaml" 2>/dev/null | awk '{print $1}')"
 rc=0; OUT="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
-check_exit "T17: name collision exits 1" 1 "$rc"
-check_contains "T17: name collision msg" "name collision" "$OUT"
-[[ -f "$td/models/model.gguf" ]] && ok "T17: model file still present" || fail "T17: model file removed"
-new_hash="$(md5sum "$td/llama-swap-config.yaml" 2>/dev/null | awk '{print $1}')"
-[[ "$config_hash" == "$new_hash" ]] && ok "T17: config untouched" || fail "T17: config was modified"
+check_exit "T17: same name different repo registers scoped id" 0 "$rc"
+check_contains "T17: scoped id message" "registering this copy as" "$OUT"
+[[ -f "$td/models/model.gguf" ]] && ok "T17: model file present" || fail "T17: model file missing"
+grep -qF '"owner-model":' "$td/llama-swap-config.yaml" && ok "T17: scoped id in config" || fail "T17: scoped id not in config"
+rm -rf "$td"
+
+# T17b: Same NAME from the SAME repo is idempotent, not re-scoped
+td="$(make_td)"; rc=0
+OUT="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
+check_exit "T17b: first registration exits 0" 0 "$rc"
+grep -qF '"model":' "$td/llama-swap-config.yaml" && ok "T17b: plain id in config" || fail "T17b: plain id missing"
 rm -rf "$td"
 
 # T18: Idempotent re-registration

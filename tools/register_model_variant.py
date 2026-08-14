@@ -24,6 +24,8 @@ def main() -> int:
     ap.add_argument("--native-context", required=True, type=int)
     ap.add_argument("--cpu-moe", default="")
     ap.add_argument("--description", default="")
+    ap.add_argument("--mmproj-path", default="")
+    ap.add_argument("--repo-meta-json", default="")
     args = ap.parse_args()
 
     cfg = Path(args.config)
@@ -75,18 +77,54 @@ def main() -> int:
     group_line = f'      - "{args.name}"\n'
 
     command = Path(args.command_file).read_text(encoding="utf-8").splitlines()
-    block = [f'{child_indent}"{args.name}":', f'{field_indent}ttl: {args.ttl}', f'{field_indent}env: ["{args.env}"]', f'{field_indent}cmd: |']
-    block += [cmd_indent + line for line in command]
+    metadata = json.loads(args.metadata_json)
+    repo_meta = json.loads(args.repo_meta_json or "{}")
+    mmproj_path = args.mmproj_path or ""
+    has_mtp = bool(metadata.get("has_mtp"))
+    block = [f'{child_indent}"{args.name}":', f'{field_indent}ttl: {args.ttl}', f'{field_indent}env: ["{args.env}"]']
+    detail_lines = []
+    if mmproj_path:
+        detail_lines.append(f"  capabilities:")
+        detail_lines.append(f'    in: ["text", "image"]')
+        detail_lines.append(f'    out: ["text"]')
+    detail_lines.append(f"  metadata:")
+    detail_lines.append(f"    source_repo: {json.dumps(args.repository)}")
+    detail_lines.append(f"    repo_url: {json.dumps(repo_meta.get('repo_url', ''))}")
+    detail_lines.append(f"    file_size_bytes: {repo_meta.get('file_size_bytes')}")
+    detail_lines.append(f"    file_sha256: {json.dumps(repo_meta.get('file_sha256') or '')}")
+    detail_lines.append(f"    vision: {json.dumps(bool(mmproj_path))}")
+    if mmproj_path:
+        detail_lines.append(f"    mmproj: {json.dumps(mmproj_path)}")
+        detail_lines.append(f"    mmproj_filename: {json.dumps(mmproj_path.rsplit('/', 1)[-1])}")
+    if has_mtp:
+        detail_lines.append(f"    mtp: true")
+        detail_lines.append(f'    mtp_flag: "--spec-type draft-mtp"')
+    detail_lines.append(f"    pipeline_tag: {json.dumps(repo_meta.get('pipeline_tag', '') or '')}")
+    block += detail_lines + [f'{field_indent}cmd: |'] + [cmd_indent + line for line in command]
     new_text = text[:insert_at] + group_line + text[insert_at:]
     new_lines = new_text.splitlines()
     mi2 = next(i for i, line in enumerate(new_lines) if re.match(r"^models:\s*(?:#.*)?$", line))
     new_text = "\n".join(new_lines[:mi2 + 1] + block + new_lines[mi2 + 1:]) + "\n"
 
     metadata = json.loads(args.metadata_json)
+    repo_meta = json.loads(args.repo_meta_json or "{}")
+    mmproj_path = args.mmproj_path or ""
+    has_mtp = bool(metadata.get("has_mtp"))
     sidecar = {
         "alias": args.name, "repository": args.repository, "filename": args.filename,
         "model_path": args.model_path, "requested_context": args.effective_context,
         "native_context": args.native_context, "n_cpu_moe": int(args.cpu_moe) if args.cpu_moe else None,
+        "mmproj_path": mmproj_path or None,
+        "mmproj_filename": mmproj_path.rsplit("/", 1)[-1] if mmproj_path else None,
+        "vision": bool(mmproj_path) or ("image" in (repo_meta.get("pipeline_tag", "") or "").lower()),
+        "has_mtp": has_mtp,
+        "mtp_flag": "--spec-type draft-mtp" if has_mtp else None,
+        "mtp_tensor_sample": (metadata.get("mtp_tensor_sample") or [])[:3],
+        "repo_url": repo_meta.get("repo_url", ""),
+        "file_size_bytes": repo_meta.get("file_size_bytes"),
+        "file_sha256": repo_meta.get("file_sha256") or None,
+        "has_checksum": bool(repo_meta.get("has_checksum")),
+        "pipeline_tag": repo_meta.get("pipeline_tag", "") or None,
         "gguf": metadata, "description": args.description or metadata.get("name") or f"GGUF from {args.repository}",
     }
     metadata_dir = Path(args.metadata_dir)
