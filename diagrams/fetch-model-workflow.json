@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "fetch-model.sh workflow",
+    "subtitle": "Acquire GGUF, attach projector, validate, and publish",
+    "output": "fetch-model-workflow.html",
+    "viewBox": [980, 760]
+  },
+  "lanes": [
+    {"id": "operator", "label": "Operator / Shell"},
+    {"id": "fetch", "label": "fetch-model.sh"},
+    {"id": "sources", "label": "Hugging Face / Files"},
+    {"id": "runtime", "label": "llama-server + llama-swap"},
+    {"id": "failure", "label": "Failure / Recovery", "variant": "exception"}
+  ],
+  "phases": [
+    {"id": "intake", "label": "INTAKE", "fromCol": 0, "toCol": 1},
+    {"id": "acquire", "label": "ACQUIRE", "fromCol": 1, "toCol": 2},
+    {"id": "validate", "label": "VALIDATE", "fromCol": 2, "toCol": 4},
+    {"id": "publish", "label": "PUBLISH", "fromCol": 4, "toCol": 5}
+  ],
+  "mainPath": ["parse", "acquire_model", "inspect", "projector", "smoke", "publish"],
+  "nodes": [
+    {"id": "parse", "lane": "operator", "col": 0, "type": "frontend", "label": "Parse", "sublabel": "spec + flags"},
+    {"id": "acquire_model", "lane": "sources", "col": 1, "type": "cloud", "label": "Acquire", "sublabel": "GGUF file"},
+    {"id": "inspect", "lane": "fetch", "col": 2, "type": "backend", "label": "Inspect", "sublabel": "arch / ctx / MoE"},
+    {"id": "projector", "lane": "sources", "col": 3, "type": "security", "label": "Projector", "sublabel": "HF tree; namespaced", "tag": "HF only"},
+    {"id": "smoke", "lane": "runtime", "col": 4, "type": "backend", "label": "Smoke", "sublabel": "health + completion"},
+    {"id": "publish", "lane": "fetch", "col": 5, "type": "database", "label": "Publish", "sublabel": "register + deploy"},
+    {"id": "failure_a", "lane": "failure", "col": 2, "type": "security", "label": "Abort", "sublabel": "policy / lookup"},
+    {"id": "failure_b", "lane": "failure", "col": 4, "type": "security", "label": "Recover", "sublabel": "dossier / rollback"}
+  ],
+  "edges": [
+    {"from": "parse", "to": "acquire_model", "variant": "emphasis"},
+    {"from": "acquire_model", "to": "inspect", "variant": "emphasis"},
+    {"from": "inspect", "to": "projector", "label": "HF source", "variant": "emphasis"},
+    {"from": "projector", "to": "smoke", "variant": "emphasis"},
+    {"from": "smoke", "to": "publish", "variant": "emphasis"},
+    {"from": "inspect", "to": "failure_a", "label": "policy", "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "drop"},
+    {"from": "smoke", "to": "failure_b", "label": "error", "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "drop"}
+  ]
+}
