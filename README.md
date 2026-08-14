@@ -173,6 +173,69 @@ curl http://wimpy.home.lan:8080/v1/models   # verify wimpy reachable
 A trailing number (e.g. `21`) sets `--n-cpu-moe N` — only accepted when GGUF
 metadata confirms the model is MoE. Rejected for dense models.
 
+### Multimodal models and projector files
+
+Some vision-language GGUF repositories provide the image encoder/projector as a
+separate `mmproj-*.gguf` file. `fetch-model.sh` handles this automatically for
+Hugging Face model specs:
+
+1. It inspects the **Hugging Face repository file tree**, not local GGUF tensor
+   keys, to determine whether the repository ships an external projector.
+2. It selects the repository's F16 projector when available, otherwise BF16 or
+   the remaining projector candidate.
+3. It downloads the projector into `MODELS_DIR` and renames it to:
+
+   ```text
+   <base-model-filename-without-.gguf>.mmproj.gguf
+   ```
+
+   This prevents collisions when several repositories all publish a file named
+   `mmproj-F16.gguf`.
+4. It adds `--mmproj <namespaced-projector-path>` to the smoke-test command and
+   the generated llama-swap registration. The projector path is also recorded
+   in the model metadata sidecar as `mmproj_path`.
+
+Example:
+
+```bash
+./fetch-model.sh 'hf download hf://owner/vision-repo/VisionModel-Q4_K_M.gguf'
+```
+
+The resulting files are conceptually:
+
+```text
+~/.cache/llama.cpp/VisionModel-Q4_K_M.gguf
+~/.cache/llama.cpp/VisionModel-Q4_K_M.mmproj.gguf
+```
+
+The repository must be reachable through the Hugging Face API. Export
+`HF_TOKEN` for private or gated repositories and for reliable API access. Do
+not commit the token or projector binaries:
+
+```bash
+export HF_TOKEN='<token in your secret manager>'
+```
+
+If projector resolution fails, registration stops rather than silently
+registering a vision model as text-only. To deliberately bypass projector
+handling—for example, when registering a text-only model from a repository that
+also contains vision artifacts—use:
+
+```bash
+./fetch-model.sh --no-mmproj 'hf download hf://owner/repo/model.gguf'
+```
+
+`--no-mmproj` is an explicit override. Do not use it for a model that needs
+image input. Direct HTTP(S) and local-file sources do not contain enough origin
+metadata for automatic projector resolution; place and wire the matching
+projector manually, or use the Hugging Face source form instead.
+
+The resolver is implemented in
+[`tools/resolve_and_fetch_mmproj.py`](tools/resolve_and_fetch_mmproj.py). The
+base model and projector must come from the same model repository/version. A
+projector from another model family or size may load incorrectly or fail with a
+dimension mismatch.
+
 **One-time automatic deployment setup:**
 
 Run this once as root on wimpy from the repository directory:
