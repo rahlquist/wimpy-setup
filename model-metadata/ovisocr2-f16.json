@@ -1,0 +1,20 @@
+{
+  "alias": "ovisocr2-f16",
+  "description": "OvisOCR2",
+  "downloaded_at": "2026-07-30T02:06:58+00:00",
+  "filename": "OvisOCR2-F16.gguf",
+  "gguf": {
+    "architecture": "qwen35",
+    "block_count": 24,
+    "context_length": 262144,
+    "description": "",
+    "expert_count": 0,
+    "expert_used_count": 0,
+    "name": "OvisOCR2"
+  },
+  "model_path": "/home/rahlquist/.cache/llama.cpp/OvisOCR2-F16.gguf",
+  "n_cpu_moe": null,
+  "native_context": 262144,
+  "repository": "Abiray/OvisOCR2-GGUF",
+  "requested_context": 262144
+}

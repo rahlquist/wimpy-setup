@@ -123,13 +123,38 @@ def get_or_create_model(conn, filepath):
     return model_id
 
 
-def run_llama_bench(bench_bin, model_path, args_list, timeout_s):
+def build_bench_command(bench_bin, model_path, device, args_list):
+    if not device:
+        raise ValueError("an explicit llama.cpp device is required")
+    return [bench_bin, "-m", model_path, "-o", "json", "--progress",
+            "--device", device] + args_list
+
+
+def validate_gpu_rows(rows, expected_gpu):
+    """Reject results unless every row identifies the commanded GPU."""
+    if not rows:
+        return "empty benchmark result"
+    for row in rows:
+        actual = str(row.get("gpu_info", ""))
+        if expected_gpu not in actual:
+            return f"GPU identity mismatch; expected {expected_gpu!r}, got {actual!r}"
+    return None
+
+
+def run_llama_bench(bench_bin, model_path, device, args_list, timeout_s, expected_gpu):
     """Run llama-bench with -o json and return parsed list of result rows.
     Returns (rows, timed_out: bool, error: str|None)."""
-    cmd = [bench_bin, "-m", model_path, "-o", "json", "--progress"] + args_list
+    cmd = build_bench_command(bench_bin, model_path, device, args_list)
+    env = os.environ.copy()
+    if device.lower().startswith("rocm"):
+        env["HIP_VISIBLE_DEVICES"] = "GPU-61fe9ba05af1939a"
+    elif device.lower().startswith("cuda"):
+        env["CUDA_VISIBLE_DEVICES"] = "0"
+    else:
+        raise ValueError(f"unsupported explicit device: {device}")
     try:
         proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout_s
+            cmd, capture_output=True, text=True, timeout=timeout_s, env=env
         )
     except subprocess.TimeoutExpired as e:
         # llama-bench streams progress to stderr; JSON array only appears
@@ -145,6 +170,9 @@ def run_llama_bench(bench_bin, model_path, args_list, timeout_s):
     text = proc.stdout.strip()
     try:
         rows = json.loads(text)
+        error = validate_gpu_rows(rows, expected_gpu)
+        if error:
+            return [], False, error
         return rows, False, None
     except json.JSONDecodeError:
         # fall back: find the first '[' ... last ']' in stdout
@@ -152,6 +180,9 @@ def run_llama_bench(bench_bin, model_path, args_list, timeout_s):
         if start != -1 and end != -1:
             try:
                 rows = json.loads(text[start:end + 1])
+                error = validate_gpu_rows(rows, expected_gpu)
+                if error:
+                    return [], False, error
                 return rows, False, None
             except json.JSONDecodeError:
                 pass
@@ -249,7 +280,8 @@ def append_csv_summary(csv_path, conn, model_id, filepath, status, notes):
         ])
 
 
-def benchmark_one(bench_bin, model_path, db_path, csv_path, budget_s, repetitions):
+def benchmark_one(bench_bin, model_path, db_path, csv_path, budget_s, repetitions,
+                  device, expected_gpu):
     conn = ensure_db(db_path)
     model_id = get_or_create_model(conn, model_path)
     conn.execute("UPDATE models SET status='benchmarking' WHERE id=?", (model_id,))
@@ -261,9 +293,9 @@ def benchmark_one(bench_bin, model_path, db_path, csv_path, budget_s, repetition
     # Pass 1: short-context throughput, the numbers everyone compares.
     remaining = budget_s - (time.time() - start)
     rows, timed_out, err = run_llama_bench(
-        bench_bin, model_path,
+        bench_bin, model_path, device,
         ["-p", "512", "-n", "128", "-r", str(repetitions), "-fa", "auto", "-ngl", "999"],
-        timeout_s=max(30, remaining),
+        timeout_s=max(30, remaining), expected_gpu=expected_gpu,
     )
     all_rows += rows
     if err:
@@ -275,10 +307,10 @@ def benchmark_one(bench_bin, model_path, db_path, csv_path, budget_s, repetition
     remaining = budget_s - (time.time() - start)
     if rows and remaining > 60 and not timed_out:
         rows2, timed_out2, err2 = run_llama_bench(
-            bench_bin, model_path,
+            bench_bin, model_path, device,
             ["-p", "512", "-n", "128", "-d", "4096", "-r", str(max(1, repetitions - 1)),
              "-fa", "auto", "-ngl", "999"],
-            timeout_s=max(30, remaining),
+            timeout_s=max(30, remaining), expected_gpu=expected_gpu,
         )
         all_rows += rows2
         if err2:
@@ -306,6 +338,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--model", required=True, help="path to .gguf file")
     ap.add_argument("--bench-bin", default=shutil.which("llama-bench") or "llama-bench")
+    ap.add_argument("--device", required=True)
+    ap.add_argument("--expected-gpu", required=True)
     ap.add_argument("--db", required=True)
     ap.add_argument("--csv", required=True)
     ap.add_argument("--budget-seconds", type=int, default=1750,  # ~29 min, leaves margin under 30
@@ -319,7 +353,7 @@ def main():
 
     status = benchmark_one(
         args.bench_bin, args.model, args.db, args.csv,
-        args.budget_seconds, args.repetitions,
+        args.budget_seconds, args.repetitions, args.device, args.expected_gpu,
     )
     print(f"[{os.path.basename(args.model)}] finished with status={status}")
 

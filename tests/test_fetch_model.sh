@@ -113,6 +113,33 @@ if FAKE_GGUF="$TMP/model-Q5_K_M.gguf" HF_CALLS="$TMP/hf-nested-fail.calls" \
 fi
 dossier="$(find "$TMP" -maxdepth 1 -type f -name 'fetch-model-model-q5-k-m-*.dossier.md' -print -quit)"
 [[ -n "$dossier" ]] || { cat "$TMP/nested-fail.out" >&2; fail 'nested path dossier was not written at DOSSIER_DIR root'; }
+assert_contains "$dossier" 'complete run output:'
+assert_contains "$dossier" 'Hermes'
+assert_contains "$TMP/nested-fail.out" 'Hermes recovery command:'
+runlog="$(find "$TMP" -maxdepth 1 -type f -name 'fetch-model-*.run.log' -print -quit)"
+[[ -n "$runlog" ]] || fail 'complete run log was not written'
+[[ -s "$runlog" ]] || fail 'complete run log was empty'
+
+# The normal command is non-interactive by default: stdin must not be needed.
+cp "$TMP/config-base.yaml" "$TMP/config-default-no-prompt.yaml"
+FAKE_GGUF="$TMP/model-Q5_K_M.gguf" HF_CALLS="$TMP/hf-default.calls" \
+PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$TMP/config-default-no-prompt.yaml" MODELS_DIR="$TMP/models-default" MODEL_METADATA_DIR="$TMP/metadata-default" INVENTORY_PATH="$TMP/generated-default-inventory.html" \
+  DOSSIER_DIR="$TMP" timeout 10 "$SCRIPT" --no-smoke 'hf download hf://owner/repo-GGUF/model-Q5_K_M.gguf 21' < /dev/null > "$TMP/default.out" 2>&1 || {
+  cat "$TMP/default.out" >&2; fail 'default invocation unexpectedly needed interactive input'; }
+assert_contains "$TMP/config-default-no-prompt.yaml" '"model-q5-k-m":'
+python3 - "$TMP/config-default-no-prompt.yaml" <<'PYGROUP'
+import sys
+text=open(sys.argv[1]).read()
+assert 'amd-r9700' not in text
+PYGROUP
+
+# A fit estimator with incomplete KV metadata must decline rather than guess.
+python3 - "$TMP/incomplete-meta.json" <<'PYINCOMPLETE'
+import json,sys
+json.dump({'block_count':52},open(sys.argv[1],'w'))
+PYINCOMPLETE
+python3 "$ROOT/tools/cuda_fit.py" --model-bytes 1000 --metadata "$TMP/incomplete-meta.json" --free-bytes 1000000 > "$TMP/incomplete-fit.json"
+assert_contains "$TMP/incomplete-fit.json" '"decision": "unknown"'
 
 # Native context below Hermes minimum: do not reject; force the 64000 compatibility context.
 python3 - "$TMP/model-low.gguf" <<'PYLOW'
@@ -164,4 +191,47 @@ PATH="$TMP/bin:$PATH" LLAMA_SERVER="$TMP/bin/llama-server" LLAMA_SWAP_CONFIG="$T
   DOSSIER_DIR="$TMP" "$SCRIPT" -y --no-smoke --no-register 'hf download hf://owner/repo-GGUF/model-Q5_K_M.gguf 49' > "$TMP/bounds.out" 2>&1 \
   && fail 'out-of-range --n-cpu-moe was accepted'
 assert_contains "$TMP/bounds.out" 'must be between 0 and 48'
+
+# CUDA fit estimator and variant registrar: use a temp config and fixture metadata.
+python3 - "$TMP/cuda-meta.json" <<'PYCUDA'
+import json,sys
+json.dump({"architecture":"muse-glimmer","block_count":52,"attention_head_count_kv":2,"attention_key_length":128,"attention_value_length":128,"context_length":131072,"name":"Muse-Glimmer-30B"},open(sys.argv[1],'w'))
+PYCUDA
+python3 "$ROOT/tools/cuda_fit.py" --model-bytes 13360983072 --metadata "$TMP/cuda-meta.json" --free-bytes 16579313664 > "$TMP/cuda-fit.json"
+assert_contains "$TMP/cuda-fit.json" '"decision": "fit"'
+cat > "$TMP/cuda-config.yaml" <<'YAMLCUDA'
+healthCheckTimeout: 180
+groups:
+  nvidia-5060ti:
+    swap: true
+    exclusive: false
+    members:
+      - "existing-cuda"
+models:
+  "existing":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=0"]
+    cmd: |
+      /usr/local/bin/llama-server --model /models/existing.gguf
+YAMLCUDA
+printf '%s\n' '/opt/llama-cuda/bin/llama-server --model /models/muse.gguf' '--ctx-size 65536 --device CUDA0' > "$TMP/cuda-command.txt"
+printf '%s\n' 'import pathlib,sys' 'pathlib.Path(sys.argv[2]).write_text("ok")' > "$TMP/render.py"
+python3 "$ROOT/tools/register_model_variant.py" --config "$TMP/cuda-config.yaml" --name muse-glimmer-cuda --group nvidia-5060ti --ttl 300 --env CUDA_VISIBLE_DEVICES=0 --command-file "$TMP/cuda-command.txt" --metadata-dir "$TMP/cuda-metadata" --inventory "$TMP/cuda-inventory.html" --inventory-renderer "$TMP/render.py" --metadata-json "$(cat "$TMP/cuda-meta.json")" --repository unsloth/Muse-Glimmer-30B-GGUF --filename Muse-Glimmer.gguf --model-path /models/Muse-Glimmer.gguf --effective-context 65536 --native-context 131072 --description Muse-Glimmer
+assert_contains "$TMP/cuda-config.yaml" '"muse-glimmer-cuda":'
+assert_contains "$TMP/cuda-config.yaml" '- "muse-glimmer-cuda"'
+assert_contains "$TMP/cuda-config.yaml" 'CUDA_VISIBLE_DEVICES=0'
+[[ -f "$TMP/cuda-metadata/muse-glimmer-cuda.json" ]] || fail 'CUDA sidecar missing'
+
+# CUDA variant registration must roll back config, sidecar, and inventory if
+# inventory rendering fails after the sidecar has been written.
+cp "$TMP/cuda-config.yaml" "$TMP/cuda-rollback-config.yaml"
+printf 'before' > "$TMP/cuda-rollback-inventory.html"
+printf '%s\n' 'raise SystemExit("renderer failure")' > "$TMP/failing-renderer.py"
+if python3 "$ROOT/tools/register_model_variant.py" --config "$TMP/cuda-rollback-config.yaml" --name rollback-cuda --group nvidia-5060ti --ttl 300 --env CUDA_VISIBLE_DEVICES=0 --command-file "$TMP/cuda-command.txt" --metadata-dir "$TMP/cuda-rollback-metadata" --inventory "$TMP/cuda-rollback-inventory.html" --inventory-renderer "$TMP/failing-renderer.py" --metadata-json "$(cat "$TMP/cuda-meta.json")" --repository unsloth/Muse-Glimmer-30B-GGUF --filename Muse-Glimmer.gguf --model-path /models/Muse-Glimmer.gguf --effective-context 65536 --native-context 131072; then
+  fail 'CUDA variant registration succeeded despite renderer failure'
+fi
+cmp -s "$TMP/cuda-config.yaml" "$TMP/cuda-rollback-config.yaml" || fail 'CUDA config was not rolled back'
+[[ ! -e "$TMP/cuda-rollback-metadata/rollback-cuda.json" ]] || fail 'CUDA sidecar was not rolled back'
+[[ "$(cat "$TMP/cuda-rollback-inventory.html")" == before ]] || fail 'CUDA inventory was not rolled back'
+
 printf 'PASS: fetch-model parses pasted HF command, derives native context, validates MoE bounds, and registers safely\n'

@@ -16,6 +16,23 @@ Three scripts:
   r/LocalLLaMA). Either a single-model report or a multi-model comparison
   table. See "Sharing results" below.
 
+## GPU routing policy
+
+GGUF files are backend-neutral. The benchmark wrapper uses the explicit
+`amd-r9700` and `nvidia-5060ti` groups in `llama-swap-config.yaml` as its
+source of truth, rather than renaming or duplicating multi-GB files. A single
+GGUF intentionally exposed through both groups is benchmarked once on each
+GPU; a file in only one group is benchmarked only there; an unmapped file is
+skipped rather than guessed onto a device.
+
+Each pass supplies an explicit llama.cpp device and visibility pin:
+`ROCm0` plus the R9700 HIP UUID for the ROCm pass, and `CUDA0` plus
+`CUDA_VISIBLE_DEVICES=0` for the CUDA pass. Results are rejected unless
+llama-bench's recorded `gpu_info` contains the expected physical GPU name.
+
+The `-cuda` suffix belongs on the CUDA alias. The underlying GGUF basename
+does not need a `-cuda` suffix, and one file with two aliases is sufficient.
+
 ## Requirements
 
 - A built `llama-bench` binary from llama.cpp (`cmake --build build
@@ -57,13 +74,18 @@ a separate cron line.
 ## Manual / one-off test run
 
 ```
-# benchmark a single file right now, ignoring the time window:
+# benchmark a single file right now, ignoring the time window; routing and
+# device arguments are required:
 python3 bench_model.py --model ~/.cache/llama.cpp/some-model.Q4_K_M.gguf \
-    --bench-bin /usr/bin/llama-bench --db bench.db --csv bench_summary.csv
+    --bench-bin /usr/local/bin/llama-bench --device ROCm0 \
+    --expected-gpu 'AMD Radeon AI PRO R9700' \
+    --db bench.db --csv bench_summary.csv
 
 # run the full watcher logic right now, ignoring the 3-5am window:
 python3 model_watcher.py --models-dir ~/.cache/llama.cpp --db bench.db \
-    --csv bench_summary.csv --bench-bin /usr/bin/llama-bench --force-run
+    --csv bench_summary.csv --bench-bin /usr/local/bin/llama-bench \
+    --gpu-class rocm --device ROCm0 \
+    --expected-gpu 'AMD Radeon AI PRO R9700' --force-run
 ```
 
 ## What gets measured, and why

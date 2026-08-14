@@ -1,0 +1,20 @@
+{
+  "alias": "gemma-4-e4b-uncensored-hauhaucs-aggressive-q8-k-p",
+  "description": "Gemma-4-E4B-Uncensored-HauhauCS-Aggressive",
+  "downloaded_at": "2026-08-08T04:44:58+00:00",
+  "filename": "Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf",
+  "gguf": {
+    "architecture": "gemma4",
+    "block_count": 42,
+    "context_length": 131072,
+    "description": "",
+    "expert_count": 0,
+    "expert_used_count": 0,
+    "name": "Gemma-4-E4B-Uncensored-HauhauCS-Aggressive"
+  },
+  "model_path": "/home/rahlquist/.cache/llama.cpp/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf",
+  "n_cpu_moe": null,
+  "native_context": 131072,
+  "repository": "HauhauCS/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive",
+  "requested_context": 65536
+}

@@ -1,0 +1,25 @@
+{
+  "alias": "qwen3-6-35b-a3b-uncensored-hauhaucs-aggressive-q4-k-m",
+  "description": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive",
+  "downloaded_at": "2026-08-12T05:01:12+00:00",
+  "filename": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+  "gguf": {
+    "architecture": "qwen35moe",
+    "attention_head_count": 16,
+    "attention_head_count_kv": 2,
+    "attention_key_length": 256,
+    "attention_value_length": 256,
+    "block_count": 40,
+    "context_length": 262144,
+    "description": "",
+    "embedding_length": 2048,
+    "expert_count": 256,
+    "expert_used_count": 8,
+    "name": "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive"
+  },
+  "model_path": "/home/rahlquist/.cache/llama.cpp/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf",
+  "n_cpu_moe": null,
+  "native_context": 262144,
+  "repository": "HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive",
+  "requested_context": 65536
+}

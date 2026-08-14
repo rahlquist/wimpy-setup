@@ -98,6 +98,31 @@ def scan_and_register(models_dir, db_path):
     return new_count
 
 
+def model_gpu_classes(config_path):
+    """Map each GGUF path to its explicit llama-swap GPU group(s).
+
+    The GGUF is backend-neutral; aliases/groups are the source of truth.
+    A file may intentionally appear in both groups and then gets benchmarked
+    once per GPU. Unmapped files are not guessed onto a device.
+    """
+    import yaml
+    with open(config_path, encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+    models = config.get("models", {})
+    classes = {}
+    for group, spec in (config.get("groups", {}) or {}).items():
+        gpu_class = "cuda" if group == "nvidia-5060ti" else "rocm" if group == "amd-r9700" else None
+        if not gpu_class:
+            continue
+        for alias in spec.get("members", []) or []:
+            cmd = str(models.get(alias, {}).get("cmd", ""))
+            match = re.search(r"(?:--model|-m)\s+(\S+\.gguf)", cmd)
+            if match:
+                path = os.path.normpath(match.group(1))
+                classes.setdefault(path, set()).add(gpu_class)
+    return classes
+
+
 def detect_current_gpu(bench_bin, log):
     """Name of the GPU llama-bench will run on, matching the gpu_info string
     llama-bench writes to benchmark_runs (e.g. 'AMD Radeon AI PRO R9700').
@@ -119,7 +144,7 @@ def detect_current_gpu(bench_bin, log):
     return None
 
 
-def get_pending_models(db_path, current_gpu=None):
+def get_pending_models(db_path, current_gpu=None, gpu_class=None, gpu_classes=None):
     """Models to benchmark tonight. With a detected GPU, a model qualifies
     only if it has NEVER been benchmarked on that GPU (so a GPU swap
     automatically re-benchmarks everything, and models already covered on
@@ -142,6 +167,8 @@ def get_pending_models(db_path, current_gpu=None):
             "SELECT filepath FROM models WHERE status IN ('pending','failed') ORDER BY first_seen ASC"
         )
     rows = [r[0] for r in cur.fetchall()]
+    if gpu_class:
+        rows = [p for p in rows if gpu_class in (gpu_classes or {}).get(os.path.normpath(p), set())]
     conn.close()
     return rows
 
@@ -153,7 +180,8 @@ def seconds_until(dt, target_time):
     return (target - dt).total_seconds()
 
 
-def run_one(model_path, db_path, csv_path, bench_bin, budget_s, repetitions, log):
+def run_one(model_path, db_path, csv_path, bench_bin, budget_s, repetitions, device,
+            expected_gpu, log):
     log(f"benchmarking: {model_path} (budget={int(budget_s)}s)")
     cmd = [
         sys.executable,
@@ -162,6 +190,8 @@ def run_one(model_path, db_path, csv_path, bench_bin, budget_s, repetitions, log
         "--db", db_path,
         "--csv", csv_path,
         "--bench-bin", bench_bin,
+        "--device", device,
+        "--expected-gpu", expected_gpu,
         "--budget-seconds", str(int(budget_s)),
         "--repetitions", str(repetitions),
     ]
@@ -179,7 +209,12 @@ def main():
     ap.add_argument("--models-dir", required=True)
     ap.add_argument("--db", required=True)
     ap.add_argument("--csv", required=True)
+    ap.add_argument("--config", required=True,
+                    help="llama-swap config providing explicit model GPU groups")
     ap.add_argument("--bench-bin", default="llama-bench")
+    ap.add_argument("--gpu-class", choices=("rocm", "cuda"), required=True)
+    ap.add_argument("--device", required=True)
+    ap.add_argument("--expected-gpu", required=True)
     ap.add_argument("--per-model-budget-seconds", type=int, default=1750)
     ap.add_argument("--repetitions", type=int, default=3)
     ap.add_argument("--rescan-interval-seconds", type=int, default=300,
@@ -202,6 +237,7 @@ def main():
     log("watcher started")
     new_models = scan_and_register(args.models_dir, args.db)
     log(f"scan complete, {new_models} new model(s) registered")
+    gpu_classes = model_gpu_classes(args.config)
 
     if not args.force_run and not in_window(now_et()):
         log("outside 3:00-5:00 AM ET window, exiting without benchmarking")
@@ -210,10 +246,11 @@ def main():
     attempted_this_session = set()
     current_gpu = detect_current_gpu(args.bench_bin, log)
     if current_gpu:
-        log(f"current GPU: {current_gpu} — selecting models never benchmarked on it")
+        log(f"current GPU: {current_gpu} — selecting {args.gpu_class} models never benchmarked on it")
 
     while args.force_run or in_window(now_et()):
-        pending = [p for p in get_pending_models(args.db, current_gpu) if p not in attempted_this_session]
+        pending = [p for p in get_pending_models(args.db, current_gpu, args.gpu_class, gpu_classes)
+                   if p not in attempted_this_session]
         if not pending:
             if args.force_run:
                 log("no pending models, force-run batch complete, exiting")
@@ -240,7 +277,8 @@ def main():
             log("less than a minute left in window, stopping before starting a new model")
             break
 
-        run_one(model_path, args.db, args.csv, args.bench_bin, budget, args.repetitions, log)
+        run_one(model_path, args.db, args.csv, args.bench_bin, budget, args.repetitions,
+                args.device, args.expected_gpu, log)
         scan_and_register(args.models_dir, args.db)  # pick up anything dropped in mid-run
 
     log("watcher exiting (window closed or force-run batch complete)")

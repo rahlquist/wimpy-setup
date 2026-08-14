@@ -1,0 +1,5 @@
+#!/usr/bin/env python3
+# Test resolver: fixture repositories are intentionally text-only.
+import sys
+sys.stdout.write("")
+raise SystemExit(0)
