@@ -499,6 +499,24 @@ acquire_model(){
 set_stage "acquire"
 acquire_model
 
+# --- Large-file mmap guard --------------------------------------------------
+# Kernel 7.2.0-rc5-1-cachyos-rc (amdgpu/kfd) hangs forever uploading weights
+# for GGUFs of ~21 GB+ when the file is loaded via mmap: the host thread spins
+# in hsa_signal_wait while the hipMemcpy never completes. Diagnosed 2026-08-14
+# via A/B kernel test (same ROCm 7.2.4 userspace; mmap loads fine on 7.1.5).
+# Evidence: evidence-20260814-qwen38-smoke/ ; upstream: llama.cpp#19482.
+# Reading weights into RAM instead (--no-mmap) avoids the bug entirely. Cost is
+# a transient host-RAM spike during load, so only large files get the flag.
+# Threshold 19 GiB: confirmed mmap-working maximum is 18.8 GiB (Dirk Q5_K_XL);
+# confirmed lowest mmap hang is 19.84 GiB (Qwen3.8-27B-Q6_K).
+NOMMAP_THRESHOLD=$((19 * 1024 * 1024 * 1024))
+MODEL_BYTES="$(stat -c '%s' "$MODEL_PATH")"
+NOMMAP_ARG=()
+if (( MODEL_BYTES >= NOMMAP_THRESHOLD )); then
+  NOMMAP_ARG=(--no-mmap)
+  warn "model file is $(( MODEL_BYTES / 1073741824 )) GiB (>= 19 GiB): adding --no-mmap to avoid the ROCm large-mmap weight-upload hang."
+fi
+
 set_stage "inspect"
 METADATA_JSON="$(python3 "$GGUF_INSPECTOR" "$MODEL_PATH")" || die "could not inspect downloaded GGUF metadata"
 read -r ARCH NATIVE_CTX BLOCKS EXPERTS EXPERTS_USED <<EOF_META
@@ -752,7 +770,7 @@ fi
 CTX_TEXT="${CTX_ARG[*]:-}"
 CMD_LINES=(
   "$LLAMA_SERVER --model $MODEL_PATH"
-  "--n-gpu-layers 99 ${MOE_ARG[*]:-} --device $GPU_DEVICE --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 $CTX_TEXT ${MMPROJ_ARG[*]:-} --jinja"
+  "--n-gpu-layers 99 ${MOE_ARG[*]:-} ${NOMMAP_ARG[*]:-} --device $GPU_DEVICE --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 $CTX_TEXT ${MMPROJ_ARG[*]:-} --jinja"
   '--host 0.0.0.0 --port ${PORT} --metrics'
 )
 # Remove the harmless double space when MoE offload is not configured.
@@ -826,7 +844,7 @@ smoke_test(){
   SMOKE_LOG="$(mktemp /tmp/fetch-model.smoke.XXXXXX.log)"
   info "smoke test: ctx=$EFFECTIVE_CTX ($CTX_MODE) device=$GPU_DEVICE cpu-moe=${CPU_MOE:-none}"
   env "${GPU_ENV_VAR}=${GPU_PIN_VALUE}" "$LLAMA_SERVER" --model "$MODEL_PATH" --n-gpu-layers 99 "${MOE_ARG[@]}" \
-    --device "$GPU_DEVICE" --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 "${CTX_ARG[@]}" "${MMPROJ_ARG[@]}" --jinja \
+    --device "$GPU_DEVICE" --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 "${CTX_ARG[@]}" "${NOMMAP_ARG[@]}" "${MMPROJ_ARG[@]}" --jinja \
     --host 127.0.0.1 --port "$SMOKE_PORT" >"$SMOKE_LOG" 2>&1 &
   SERVER_PID=$!
   local i code ready=0

@@ -72,6 +72,8 @@ groups:
     swap: true          # one model at a time on the single R9700
     exclusive: false    # do NOT unload the nvidia group when an AMD model loads
     members:
+      - "dirk-qwen3-8-27b-ud-q6-k-xl"
+      - "dirk-qwen3-8-27b-ud-q5-k-xl"
       - "qwen3-8-27b-q3-k-s"
       - "qwen3-8-27b-q5-k-m"
       - "qwen3-8-27b-ud-iq2-m"
@@ -144,6 +146,66 @@ groups:
       - "ling-mini-2-q6-cuda"
 
 models:
+  "dirk-qwen3-8-27b-ud-q6-k-xl":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    name: "Dirk-Qwen3.8-27B-GGUF"
+    description: "Renewal of the beloved Qwen model, delivering unmatched intelligence density."
+    capabilities:
+      in: ["text", "image"]
+      out: ["text"]
+      tools: false
+      context: 65536
+    metadata:
+      source_repo: "peculiar-ragdoll/Dirk-Qwen3.8-27B-GGUF"
+      repo_url: "https://huggingface.co/peculiar-ragdoll/Dirk-Qwen3.8-27B-GGUF"
+      file_size_bytes: 25924162624
+      file_sha256: "9e97c18484824717ad099324b31f3c2709f90d2461f2162fe1fd95e1e6583ab8"
+      has_checksum: true
+      vision: true
+      mmproj: "/home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q6_K_XL.mmproj.gguf"
+      mmproj_filename: "Dirk-Qwen3.8-27B-UD-Q6_K_XL.mmproj.gguf"
+      mtp: true
+      mtp_flag: "--spec-type draft-mtp"
+      pipeline_tag: "image-text-to-text"
+      mtp_tensor_sample:
+        - "blk.64.nextn.eh_proj.weight"
+        - "blk.64.nextn.enorm.weight"
+        - "blk.64.nextn.hnorm.weight"
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q6_K_XL.gguf
+      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q6_K_XL.mmproj.gguf --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
+  "dirk-qwen3-8-27b-ud-q5-k-xl":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    name: "Dirk-Qwen3.8-27B-GGUF"
+    description: "Renewal of the beloved Qwen model, delivering unmatched intelligence density."
+    capabilities:
+      in: ["text", "image"]
+      out: ["text"]
+      tools: false
+      context: 65536
+    metadata:
+      source_repo: "peculiar-ragdoll/Dirk-Qwen3.8-27B-GGUF"
+      repo_url: "https://huggingface.co/peculiar-ragdoll/Dirk-Qwen3.8-27B-GGUF"
+      file_size_bytes: 20218188864
+      file_sha256: "9ea3ab209250fa74f1dd04a7d3ba60f9d346a5752c5c357d48e71df648586898"
+      has_checksum: true
+      vision: true
+      mmproj: "/home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q5_K_XL.mmproj.gguf"
+      mmproj_filename: "Dirk-Qwen3.8-27B-UD-Q5_K_XL.mmproj.gguf"
+      mtp: true
+      mtp_flag: "--spec-type draft-mtp"
+      pipeline_tag: "image-text-to-text"
+      mtp_tensor_sample:
+        - "blk.64.nextn.eh_proj.weight"
+        - "blk.64.nextn.enorm.weight"
+        - "blk.64.nextn.hnorm.weight"
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q5_K_XL.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q5_K_XL.mmproj.gguf --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
 
   "nail-qwen3-6-35b-a3b-ud-q4-k-xl":
     ttl: 300

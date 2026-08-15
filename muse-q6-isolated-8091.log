@@ -1,0 +1,10 @@
+0.00.073.821 I cmn  common_param: common_params_print_info: verbosity = 3 (adjust with the `-lv N` CLI arg)
+0.00.074.154 W srv  llama_server: -----------------
+0.00.074.156 W srv  llama_server: CORS is set to allow all origins ('*') and no API key is set
+0.00.074.156 W srv  llama_server: this can be a security risk (cross-origin attacks)
+0.00.074.156 W srv  llama_server: more info: https://github.com/ggml-org/llama.cpp/pull/25655
+0.00.074.156 W srv  llama_server: -----------------
+0.00.075.395 I srv    load_model: loading model '/home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q6_K_XL.gguf'
+0.00.720.244 W load: setting token '<|message|>' (200023) attribute to USER_DEFINED (16), old attributes: 8
+0.00.720.247 W load: setting token '<|start|>' (200022) attribute to USER_DEFINED (16), old attributes: 8
+0.00.723.027 W load: special_eot_id is not in special_eog_ids - the tokenizer config may be incorrect

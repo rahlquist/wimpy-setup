@@ -1,0 +1,17 @@
+  ┌─ detected ─────────────────────────────────────────────
+  │ source       : hf
+  │ repo         : unsloth/Qwen3.8-27B-GGUF
+  │ file         : Qwen3.8-27B-UD-Q6_K_XL.gguf
+  │ llama-server : /usr/local/bin/llama-server
+  │ gpu device   : ROCm0  (pin: HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a)
+  │ llama-swap   : /home/rahlquist/wimpy-setup/llama-swap-config.yaml
+  │ models dir   : /home/rahlquist/.cache/llama.cpp
+  │ ctx request  : 64000
+  │ cpu MoE      : none
+  └────────────────────────────────────────────────────────
+  proceed? [Y/n] [..]   downloading Qwen3.8-27B-UD-Q6_K_XL.gguf (25G)
+[32m[OK][0m   acquired: /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-Q6_K_XL.gguf (25G)
+[33m[!!][0m   GGUF native context 262144 exceeds the 65536 working cap; registering at ctx=65536.
+[33m[!!][0m   If the model fails to load within the health window at ctx=65536, lower -c further to fit VRAM.
+  │ architecture : qwen35
+  │ native ctx   : 262144

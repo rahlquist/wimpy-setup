@@ -1,0 +1,266 @@
+[New LWP 1019251]
+[New LWP 1019250]
+[New LWP 1019249]
+[New LWP 1019248]
+[New LWP 1019247]
+[New LWP 1019246]
+[New LWP 1019245]
+[New LWP 1019244]
+[New LWP 1019243]
+[New LWP 1019242]
+[New LWP 1019241]
+[New LWP 1019240]
+[New LWP 1019239]
+[New LWP 1019238]
+[New LWP 1019237]
+[New LWP 1019236]
+[New LWP 1019234]
+[New LWP 1019233]
+[New LWP 1019232]
+[New LWP 1019231]
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/usr/lib/libthread_db.so.1".
+0x00007f147186fbac in ?? () from /opt/rocm/lib/libhsa-runtime64.so.1
+
+Thread 21 (Thread 0x7f14717ff6c0 (LWP 1019231) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14af8d0574 in std::thread::_State_impl<std::thread::_Invoker<std::tuple<common_log::resume()::{lambda()#1}> > >::_M_run() () from /usr/local/lib/libllama-common.so.0
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 20 (Thread 0x7f1470ffe6c0 (LWP 1019232) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aac0c3 in pthread_cond_clockwait () from /usr/lib/libc.so.6
+#4  0x00007f14afde8b74 in stream_session_manager::gc_loop() () from /usr/local/lib/libllama-server-impl.so
+#5  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#6  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#7  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 19 (Thread 0x7f146bfff6c0 (LWP 1019233) "llama-server"):
+#0  0x00007f14a9b487bf in ioctl () from /usr/lib/libc.so.6
+#1  0x00007f147198a1c9 in ?? () from /opt/rocm/lib/libhsa-runtime64.so.1
+#2  0x00007f147197c4ab in ?? () from /opt/rocm/lib/libhsa-runtime64.so.1
+#3  0x00007f14718af1a6 in ?? () from /opt/rocm/lib/libhsa-runtime64.so.1
+#4  0x00007f147191d441 in ?? () from /opt/rocm/lib/libhsa-runtime64.so.1
+#5  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#6  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 18 (Thread 0x7f146b7fe6c0 (LWP 1019234) "llama-server"):
+#0  0x00007f14a9b487bf in ioctl () from /usr/lib/libc.so.6
+#1  0x00007f147198a1c9 in ?? () from /opt/rocm/lib/libhsa-runtime64.so.1
+#2  0x00007f147197c4ab in ?? () from /opt/rocm/lib/libhsa-runtime64.so.1
+#3  0x00007f14718d6261 in ?? () from /opt/rocm/lib/libhsa-runtime64.so.1
+#4  0x00007f14718ae699 in ?? () from /opt/rocm/lib/libhsa-runtime64.so.1
+#5  0x00007f147191d441 in ?? () from /opt/rocm/lib/libhsa-runtime64.so.1
+#6  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#7  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 17 (Thread 0x7f146a1ff6c0 (LWP 1019236) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8ba8 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9b4f26e in accept4 () from /usr/lib/libc.so.6
+#3  0x00007f14afed07af in httplib::Server::listen_internal() () from /usr/local/lib/libllama-server-impl.so
+#4  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#5  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#6  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 16 (Thread 0x7f14699fe6c0 (LWP 1019237) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 15 (Thread 0x7f14691fd6c0 (LWP 1019238) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 14 (Thread 0x7f14689fc6c0 (LWP 1019239) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 13 (Thread 0x7f1319bff6c0 (LWP 1019240) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 12 (Thread 0x7f13193fe6c0 (LWP 1019241) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 11 (Thread 0x7f1318bfd6c0 (LWP 1019242) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 10 (Thread 0x7f1313fff6c0 (LWP 1019243) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 9 (Thread 0x7f13137fe6c0 (LWP 1019244) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 8 (Thread 0x7f1312ffd6c0 (LWP 1019245) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 7 (Thread 0x7f13127fc6c0 (LWP 1019246) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 6 (Thread 0x7f1311ffb6c0 (LWP 1019247) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 5 (Thread 0x7f13117fa6c0 (LWP 1019248) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 4 (Thread 0x7f1310ff96c0 (LWP 1019249) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 3 (Thread 0x7f13107f86c0 (LWP 1019250) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 2 (Thread 0x7f130fff76c0 (LWP 1019251) "llama-server"):
+#0  0x00007f14a9ab5882 in ?? () from /usr/lib/libc.so.6
+#1  0x00007f14a9aa8b18 in ?? () from /usr/lib/libc.so.6
+#2  0x00007f14a9aa8ee3 in ?? () from /usr/lib/libc.so.6
+#3  0x00007f14a9aabad0 in pthread_cond_wait () from /usr/lib/libc.so.6
+#4  0x00007f14a9ef8851 in std::condition_variable::wait(std::unique_lock<std::mutex>&) () from /usr/lib/libstdc++.so.6
+#5  0x00007f14afef645b in httplib::ThreadPool::worker(bool) () from /usr/local/lib/libllama-server-impl.so
+#6  0x00007f14a9f05de6 in ?? () from /usr/lib/libstdc++.so.6
+#7  0x00007f14a9aac798 in ?? () from /usr/lib/libc.so.6
+#8  0x00007f14a9b4da7c in ?? () from /usr/lib/libc.so.6
+
+Thread 1 (Thread 0x7f14aa1a2e40 (LWP 1019229) "llama-server"):
+#0  0x00007f147186fbac in ?? () from /opt/rocm/lib/libhsa-runtime64.so.1
+#1  0x00007f147186fda0 in ?? () from /opt/rocm/lib/libhsa-runtime64.so.1
+#2  0x00007f1471872ba1 in ?? () from /opt/rocm/lib/libhsa-runtime64.so.1
+#3  0x00007f149d33b173 in ?? () from /opt/rocm/lib/libamdhip64.so.7
+#4  0x00007f149d37c8bb in ?? () from /opt/rocm/lib/libamdhip64.so.7
+#5  0x00007f149d37ce10 in ?? () from /opt/rocm/lib/libamdhip64.so.7
+#6  0x00007f149d38430b in ?? () from /opt/rocm/lib/libamdhip64.so.7
+#7  0x00007f149d33ea1f in ?? () from /opt/rocm/lib/libamdhip64.so.7
+#8  0x00007f149d305dfd in ?? () from /opt/rocm/lib/libamdhip64.so.7
+#9  0x00007f149d03f18e in ?? () from /opt/rocm/lib/libamdhip64.so.7
+#10 0x00007f149d0408b5 in ?? () from /opt/rocm/lib/libamdhip64.so.7
+#11 0x00007f149d084689 in ?? () from /opt/rocm/lib/libamdhip64.so.7
+#12 0x00007f14ae337310 in ggml_backend_cuda_buffer_set_tensor(ggml_backend_buffer*, ggml_tensor*, void const*, unsigned long, unsigned long) () from /usr/local/lib/libggml-hip.so.0
+#13 0x00007f14af19c0d0 in llama_model_loader::load_all_data(ggml_context*, std::unordered_map<unsigned int, ggml_backend_buffer*, std::hash<unsigned int>, std::equal_to<unsigned int>, std::allocator<std::pair<unsigned int const, ggml_backend_buffer*> > >&, std::vector<std::unique_ptr<llama_mlock, std::default_delete<llama_mlock> >, std::allocator<std::unique_ptr<llama_mlock, std::default_delete<llama_mlock> > > >*, bool (*)(float, void*), void*) () from /usr/local/lib/libllama.so.0
+#14 0x00007f14af1bc85f in llama_model_base::load_tensors(llama_model_loader&) () from /usr/local/lib/libllama.so.0
+#15 0x00007f14af0caa8a in llama_model_load(gguf_context*, void (*)(ggml_tensor*, void*), void*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::allocator<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > >&, _IO_FILE*, llama_model_params&) () from /usr/local/lib/libllama.so.0
+#16 0x00007f14af0cc572 in llama_model_load_from_file_impl(gguf_context*, void (*)(ggml_tensor*, void*), void*, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, std::vector<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >, std::allocator<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > > >&, _IO_FILE*, llama_model_params) () from /usr/local/lib/libllama.so.0
+#17 0x00007f14af0ce19e in llama_model_load_from_file () from /usr/local/lib/libllama.so.0
+#18 0x00007f14af85ab37 in common_init_result::common_init_result(common_params&, bool) () from /usr/local/lib/libllama-common.so.0
+#19 0x00007f14af85d76b in common_init_from_params(common_params&, bool) () from /usr/local/lib/libllama-common.so.0
+#20 0x00007f14afde1ac2 in server_context_impl::load_model(common_params&) () from /usr/local/lib/libllama-server-impl.so
+#21 0x00007f14afcf97ae in llama_server(common_params&, int, char**) () from /usr/local/lib/libllama-server-impl.so
+#22 0x00007f14afcfcd69 in llama_server(int, char**) () from /usr/local/lib/libllama-server-impl.so
+#23 0x00007f14a9a27d0e in ?? () from /usr/lib/libc.so.6
+#24 0x00007f14a9a27e4b in __libc_start_main () from /usr/lib/libc.so.6
+#25 0x000055941b01b075 in _start ()
+[Inferior 1 (process 1019229) detached]

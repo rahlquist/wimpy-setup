@@ -1,0 +1,52 @@
+{
+  "alias": "dirk-qwen3-8-27b-ud-q6-k-xl",
+  "description": "Renewal of the beloved Qwen model, delivering unmatched intelligence density.",
+  "downloaded_at": "2026-08-15T02:42:31+00:00",
+  "file_sha256": "9e97c18484824717ad099324b31f3c2709f90d2461f2162fe1fd95e1e6583ab8",
+  "file_size_bytes": 25924162624,
+  "filename": "Dirk-Qwen3.8-27B-UD-Q6_K_XL.gguf",
+  "gguf": {
+    "ambiguous_vision": false,
+    "architecture": "qwen35",
+    "attention_head_count": 24,
+    "attention_head_count_kv": 4,
+    "attention_key_length": 256,
+    "attention_value_length": 256,
+    "block_count": 65,
+    "context_length": 262144,
+    "description": "Renewal of the beloved Qwen model, delivering unmatched intelligence density.",
+    "embedded_projector": false,
+    "embedding_length": 5120,
+    "expert_count": 0,
+    "expert_used_count": 0,
+    "has_mtp": true,
+    "mtp_flag": "--spec-type draft-mtp",
+    "mtp_tensor_sample": [
+      "blk.64.nextn.eh_proj.weight",
+      "blk.64.nextn.enorm.weight",
+      "blk.64.nextn.hnorm.weight",
+      "blk.64.nextn.shared_head_norm.weight"
+    ],
+    "multimodal": false,
+    "name": "Qwen3.8-27B",
+    "needs_external_projector": false
+  },
+  "has_checksum": true,
+  "has_mtp": true,
+  "mmproj_filename": "Dirk-Qwen3.8-27B-UD-Q6_K_XL.mmproj.gguf",
+  "mmproj_path": "/home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q6_K_XL.mmproj.gguf",
+  "model_path": "/home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q6_K_XL.gguf",
+  "mtp_flag": "--spec-type draft-mtp",
+  "mtp_tensor_sample": [
+    "blk.64.nextn.eh_proj.weight",
+    "blk.64.nextn.enorm.weight",
+    "blk.64.nextn.hnorm.weight"
+  ],
+  "n_cpu_moe": null,
+  "native_context": 262144,
+  "pipeline_tag": "image-text-to-text",
+  "repo_url": "https://huggingface.co/peculiar-ragdoll/Dirk-Qwen3.8-27B-GGUF",
+  "repository": "peculiar-ragdoll/Dirk-Qwen3.8-27B-GGUF",
+  "requested_context": 65536,
+  "vision": true
+}

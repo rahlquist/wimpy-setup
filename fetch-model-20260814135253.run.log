@@ -1,0 +1,95 @@
+  ┌─ detected ─────────────────────────────────────────────
+  │ source       : hf
+  │ repo         : unsloth/Qwen3.8-27B-GGUF
+  │ file         : Qwen3.8-27B-Q5_K_M.gguf
+  │ llama-server : /usr/local/bin/llama-server
+  │ gpu device   : ROCm0  (pin: HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a)
+  │ llama-swap   : /home/rahlquist/wimpy-setup/llama-swap-config.yaml
+  │ models dir   : /home/rahlquist/.cache/llama.cpp
+  │ ctx request  : 64000
+  │ cpu MoE      : none
+  └────────────────────────────────────────────────────────
+  proceed? [Y/n] [..]   downloading Qwen3.8-27B-Q5_K_M.gguf (19G)
+[32m[OK][0m   acquired: /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q5_K_M.gguf (19G)
+[33m[!!][0m   GGUF native context 262144 exceeds the 65536 working cap; registering at ctx=65536.
+[33m[!!][0m   If the model fails to load within the health window at ctx=65536, lower -c further to fit VRAM.
+  │ architecture : qwen35
+  │ native ctx   : 262144
+[36m[..][0m   projector lookup: checking Hugging Face repo tree for an external mmproj
+[36m[..][0m   projector resolver: /home/rahlquist/wimpy-setup/tools/resolve_and_fetch_mmproj.py
+[..] projector lookup: querying HF repo tree for unsloth/Qwen3.8-27B-GGUF
+[..] projector candidate: mmproj-BF16.gguf
+[..] projector download attempt 1/3
+[..] projector download started: mmproj-BF16.gguf (0.87 GiB)
+[..] projector download:   0.11% 1/888 MiB at 5.2 MiB/s
+[..] projector download:   8.90% 79/888 MiB at 66.2 MiB/s
+[..] projector download:  12.05% 107/888 MiB at 43.2 MiB/s
+[..] projector download:  13.40% 119/888 MiB at 34.1 MiB/s
+[..] projector download:  15.32% 136/888 MiB at 29.9 MiB/s
+[..] projector download:  16.78% 149/888 MiB at 26.5 MiB/s
+[..] projector download:  18.69% 166/888 MiB at 24.6 MiB/s
+[..] projector download:  20.04% 178/888 MiB at 22.6 MiB/s
+[..] projector download:  21.96% 195/888 MiB at 21.7 MiB/s
+[..] projector download:  23.42% 208/888 MiB at 20.8 MiB/s
+[..] projector download:  25.22% 224/888 MiB at 20.1 MiB/s
+[..] projector download:  26.58% 236/888 MiB at 19.2 MiB/s
+[..] projector download:  28.49% 253/888 MiB at 18.7 MiB/s
+[..] projector download:  29.84% 265/888 MiB at 18.2 MiB/s
+[..] projector download:  31.76% 282/888 MiB at 17.9 MiB/s
+[..] projector download:  33.11% 294/888 MiB at 17.5 MiB/s
+[..] projector download:  35.02% 311/888 MiB at 17.2 MiB/s
+[..] projector download:  36.37% 323/888 MiB at 16.8 MiB/s
+[..] projector download:  38.29% 340/888 MiB at 16.7 MiB/s
+[..] projector download:  39.64% 352/888 MiB at 16.4 MiB/s
+[..] projector download:  41.55% 369/888 MiB at 16.2 MiB/s
+[..] projector download:  42.90% 381/888 MiB at 15.9 MiB/s
+[..] projector download:  44.82% 398/888 MiB at 15.8 MiB/s
+[..] projector download:  46.17% 410/888 MiB at 15.5 MiB/s
+[..] projector download:  48.09% 427/888 MiB at 15.3 MiB/s
+[..] projector download:  49.44% 439/888 MiB at 15.0 MiB/s
+[..] projector download:  51.46% 457/888 MiB at 14.9 MiB/s
+[..] projector download:  52.81% 469/888 MiB at 14.7 MiB/s
+[..] projector download:  54.73% 486/888 MiB at 14.7 MiB/s
+[..] projector download:  56.08% 498/888 MiB at 14.5 MiB/s
+[..] projector download:  57.99% 515/888 MiB at 14.4 MiB/s
+[..] projector download:  59.35% 527/888 MiB at 14.2 MiB/s
+[..] projector download:  61.26% 544/888 MiB at 14.2 MiB/s
+[..] projector download:  62.61% 556/888 MiB at 14.0 MiB/s
+[..] projector download:  64.53% 573/888 MiB at 14.0 MiB/s
+[..] projector download:  65.88% 585/888 MiB at 13.8 MiB/s
+[..] projector download:  67.79% 602/888 MiB at 13.8 MiB/s
+[..] projector download:  69.14% 614/888 MiB at 13.6 MiB/s
+[..] projector download:  71.06% 631/888 MiB at 13.6 MiB/s
+[..] projector download:  72.41% 643/888 MiB at 13.5 MiB/s
+[..] projector download:  74.32% 660/888 MiB at 13.4 MiB/s
+[..] projector download:  75.67% 672/888 MiB at 13.3 MiB/s
+[..] projector download:  77.59% 689/888 MiB at 13.2 MiB/s
+[..] projector download:  78.94% 701/888 MiB at 13.1 MiB/s
+[..] projector download:  80.85% 718/888 MiB at 13.1 MiB/s
+[..] projector download:  82.21% 730/888 MiB at 12.9 MiB/s
+[..] projector download:  84.12% 747/888 MiB at 12.9 MiB/s
+[..] projector download:  85.58% 760/888 MiB at 12.8 MiB/s
+[..] projector download:  87.50% 777/888 MiB at 12.8 MiB/s
+[..] projector download:  90.09% 800/888 MiB at 13.0 MiB/s
+[..] projector download:  93.13% 827/888 MiB at 13.2 MiB/s
+[..] projector download:  98.20% 872/888 MiB at 13.6 MiB/s
+[OK] projector download complete: /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q5_K_M.mmproj.gguf (888 MiB)
+[32m[OK][0m   acquired multimodal projector: /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q5_K_M.mmproj.gguf (889M)
+  │ model bytes  : 19834055648
+  │ CUDA decision: NOT SUPPORTED — estimated required 25G exceeds free 16G 
+[36m[..][0m   smoke test: ctx=65536 (capped at 65536 (native 262144 exceeds R9700 VRAM headroom)) device=ROCm0 cpu-moe=none
+[32m[OK][0m   loaded, generated, and healthy at ctx=65536 on ROCm0
+[32m[OK][0m   registered 'qwen3-8-27b-q5-k-m' in /home/rahlquist/wimpy-setup/llama-swap-config.yaml.
+[32m[OK][0m   wrote metadata sidecar: /home/rahlquist/wimpy-setup/model-metadata/qwen3-8-27b-q5-k-m.json
+[32m[OK][0m   updated model inventory: /home/rahlquist/wimpy-setup/model-inventory.html
+
+=== fetch-model summary ===
+ROCm support: SUPPORTED — ROCm0 (id=qwen3-8-27b-q5-k-m)
+CUDA support: NOT SUPPORTED — estimated required 25G exceeds free 16G  (id=qwen3-8-27b-q5-k-m-cuda)
+Model: 19834055648 bytes, configured context: 65536
+Warnings: GGUF native context 262144 exceeds the 65536 working cap; registering at ctx=65536.; If the model fails to load within the health window at ctx=65536, lower -c further to fit VRAM.
+[OK]  installed live config: /etc/llama-swap/config.yaml
+[OK]  llama-swap reloaded the deployed config
+[OK]  backup retained: /etc/llama-swap/config.yaml.20260814135619.autodeploy.X9mihf.bak
+[32m[OK][0m   deployed live llama-swap config and verified its API model list
+[36m[..][0m   repository changes are local only; review, commit, and push manually if desired.

@@ -1,5 +1,57 @@
 # Changelog — wimpy-setup
 
+## ROCm large-model load hang: kernel 7.2.0-rc5 regression, auto --no-mmap workaround (2026-08-14)
+
+**Incident (root cause):** registering
+`Dirk-Qwen3.8-27B-UD-Q6_K_XL.gguf` (24.1 GB, hf://peculiar-ragdoll/Dirk-Qwen3.8-27B-GGUF)
+failed six times at the smoke stage with no error message: the server
+allocated all its VRAM (24.8 GB reserved on the R9700), then hung silently
+with the GPU clocks at 0 MHz and one host thread spinning at ~100% CPU. A
+gdb backtrace put the spin in `hsa_signal_wait` inside `hipMemcpy` →
+`ggml_backend_cuda_buffer_set_tensor` — the host→GPU weight-upload copy never
+completes.
+
+**Elimination sequence (all reproducible):** ruled out, in order — VRAM fit
+(hangs identically at ctx=8192), cold-GPU runtime-PM sleep (sysfs pin
+`power/control=on`, same hang), SDMA engine path (`HSA_ENABLE_SDMA=0`, same
+hang), host memory pressure (swap flushed, same hang), warm-GPU wake-up race
+(3B model loaded alongside, same hang), and the model file itself (sha256
+verified; the Q5_K_XL sibling at 18.8 GiB loads fine). The boundary was
+consistent across architectures and repos: every mmap'd load of a file
+≥19.8 GiB hangs; ≤18.8 GiB works. `--no-mmap` (read weights into RAM instead
+of mmap) makes the same 24.1 GB file load in ~8 s and generate correctly at
+full ctx=65536.
+
+**Definitive split (A/B kernel test):** same ROCm 7.2.4 userspace, same
+flags, same file — the mmap load hangs on kernel 7.2.0-rc5-1-cachyos-rc and
+loads cleanly in ~12 s on 7.1.5-1-cachyos. **The bug is the rc kernel's
+amdgpu/kfd weight-upload path, not ROCm userspace, llama.cpp, or wimpy
+config.** Decision: wimpy stays on 7.1.5-1-cachyos for inference. Upstream
+refs with matching backtraces: ggml-org/llama.cpp#19482,
+charlie12345/ROCmFPX#37 (gfx1201 SDMA signal loss).
+
+**Fix (root-cause-safe, reusable):** `fetch-model.sh` now auto-adds
+`--no-mmap` for any acquired GGUF ≥ 19 GiB (threshold sits between the
+confirmed-working 18.8 GiB and confirmed-hanging 19.8 GiB cases) — applied to
+both the smoke test and the registered command, with a warning explaining why.
+The cost is a transient host-RAM spike during load; nothing changes after the
+weights reach VRAM. This makes large-model registration work regardless of
+which kernel is booted. Registered this session:
+`dirk-qwen3-8-27b-ud-q5-k-xl` and `dirk-qwen3-8-27b-ud-q6-k-xl` (both
+ctx=65536, smoke-verified; the Q6 carries `--no-mmap`).
+
+**Evidence:** run logs + dossiers from 2026-08-14, probe logs, and the gdb
+backtrace are preserved in `evidence-20260814-qwen38-smoke/`. The
+`wimpy-model-bringup` skill carries this as GOTCHA 6 (signature, eliminations,
+boundary, fix).
+
+**Known affected (no action needed while on 7.1.5):** registered entries over
+19 GiB that were added before this workaround
+(`muse-glimmer-30b-ud-q6-k-xl`, `qwen-qwen3-30b-a3b-instruct-2507-q6-k-l`,
+`qwen3-6-27b-fable-…-q6-k`, plus the 20.8 GB borderline pair) will hang again
+if booted on the rc kernel without `--no-mmap`. Re-register them through the
+patched fetch-model.sh if that ever happens.
+
 ## SSH trust: reusable scripts for the hermes automation account (2026-08-03)
 
 **Incident (root cause):** on 2026-08-03, hermesvm01 lost passwordless SSH
