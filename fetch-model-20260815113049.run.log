@@ -1,0 +1,37 @@
+  ┌─ detected ─────────────────────────────────────────────
+  │ source       : local
+  │ repo         : local/local
+  │ file         : GLM-4.7-Flash-Uncen-Hrt-NEO-CODE-MAX-imat-D_AU-Q6_K.gguf
+  │ llama-server : /usr/local/bin/llama-server
+  │ gpu device   : ROCm0  (pin: HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a)
+  │ llama-swap   : /home/rahlquist/wimpy-setup/llama-swap-config.yaml
+  │ models dir   : /home/rahlquist/.cache/llama.cpp
+  │ ctx request  : 64000
+  │ cpu MoE      : none
+  └────────────────────────────────────────────────────────
+[32m[OK][0m   acquired: /home/rahlquist/.cache/llama.cpp/GLM-4.7-Flash-Uncen-Hrt-NEO-CODE-MAX-imat-D_AU-Q6_K.gguf (24G)
+[33m[!!][0m   model file is 23 GiB (>= 19 GiB): adding --no-mmap to avoid the ROCm large-mmap weight-upload hang.
+[33m[!!][0m   GGUF native context 202752 exceeds the 65536 working cap; registering at ctx=65536.
+[33m[!!][0m   If the model fails to load within the health window at ctx=65536, lower -c further to fit VRAM.
+  │ architecture : deepseek2
+  │ native ctx   : 202752
+  │ MoE          : 64 experts/layer, 4 active; 47 blocks
+  │ model bytes  : 24988976064
+  │ CUDA decision: NOT SUPPORTED — estimated required 27G exceeds free 16G 
+[36m[..][0m   smoke test: ctx=65536 (capped at 65536 (native 202752 exceeds R9700 VRAM headroom)) device=ROCm0 cpu-moe=none
+[32m[OK][0m   loaded, generated, and healthy at ctx=65536 on ROCm0
+[32m[OK][0m   registered 'glm-4-7-flash-uncen-hrt-neo-code-max-imat-d-au-q6-k' in /home/rahlquist/wimpy-setup/llama-swap-config.yaml.
+[32m[OK][0m   wrote metadata sidecar: /home/rahlquist/wimpy-setup/model-metadata/glm-4-7-flash-uncen-hrt-neo-code-max-imat-d-au-q6-k.json
+[32m[OK][0m   updated model inventory: /home/rahlquist/wimpy-setup/model-inventory.html
+
+=== fetch-model summary ===
+ROCm support: SUPPORTED — ROCm0 (id=glm-4-7-flash-uncen-hrt-neo-code-max-imat-d-au-q6-k)
+CUDA support: NOT SUPPORTED — estimated required 27G exceeds free 16G  (id=glm-4-7-flash-uncen-hrt-neo-code-max-imat-d-au-q6-k-cuda)
+Model: 24988976064 bytes, configured context: 65536
+Warnings: model file is 23 GiB (>= 19 GiB): adding --no-mmap to avoid the ROCm large-mmap weight-upload hang.; GGUF native context 202752 exceeds the 65536 working cap; registering at ctx=65536.; If the model fails to load within the health window at ctx=65536, lower -c further to fit VRAM.
+[OK]  installed live config: /etc/llama-swap/config.yaml
+[OK]  llama-swap reloaded the deployed config
+[OK]  backup retained: /etc/llama-swap/config.yaml.20260815113057.autodeploy.bNwi2k.bak
+[32m[OK][0m   deployed live llama-swap config and verified its API model list
+[36m[..][0m   repository changes are local only; review, commit, and push manually if desired.
+[32m[OK][0m   removed local source: /home/rahlquist/.cache/llama.cpp/.glm-rc-test/GLM-4.7-Flash-Uncen-Hrt-NEO-CODE-MAX-imat-D_AU-Q6_K.gguf (use --keep-source to retain)
