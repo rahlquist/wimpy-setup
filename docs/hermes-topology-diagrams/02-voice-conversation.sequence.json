@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Live Voice Conversation",
+    "subtitle": "yogaman uses slug for voice services and hermesvm01 for Hermes; wimpy serves inference",
+    "output": "02-voice-conversation.html",
+    "viewBox": [1120, 940]
+  },
+  "participants": [
+    { "id": "user", "type": "external", "label": "User", "sublabel": "speaks" },
+    { "id": "yogaman", "type": "frontend", "label": "yogaman", "sublabel": "Hermes Desktop" },
+    { "id": "slugstt", "type": "security", "label": "slug STT", "sublabel": "FastFlowLM / NPU" },
+    { "id": "gateway", "type": "backend", "label": "hermesvm01", "sublabel": "Hermes brain" },
+    { "id": "wimpy", "type": "cloud", "label": "wimpy", "sublabel": "llama-swap" },
+    { "id": "slugtts", "type": "security", "label": "slug TTS", "sublabel": "Qwen3-TTS / iGPU" },
+    { "id": "speaker", "type": "external", "label": "Speaker", "sublabel": "hears response" }
+  ],
+  "segments": [
+    { "from": 150, "to": 335, "label": "01 / CAPTURE + TRANSCRIBE" },
+    { "from": 355, "to": 585, "label": "02 / REASON" },
+    { "from": 605, "to": 800, "label": "03 / SYNTHESIZE + PLAY" }
+  ],
+  "messages": [
+    { "from": "user", "to": "yogaman", "y": 185, "label": "speak", "variant": "emphasis" },
+    { "from": "yogaman", "to": "slugstt", "y": 230, "label": "audio upload", "variant": "security" },
+    { "from": "slugstt", "to": "yogaman", "y": 285, "label": "partial / final text", "variant": "return" },
+    { "from": "yogaman", "to": "gateway", "y": 390, "label": "user text + session", "variant": "emphasis" },
+    { "from": "gateway", "to": "wimpy", "y": 450, "label": "chat completion", "variant": "default" },
+    { "from": "wimpy", "to": "gateway", "y": 505, "label": "tokens", "variant": "return" },
+    { "from": "gateway", "to": "yogaman", "y": 610, "label": "response text", "variant": "return" },
+    { "from": "yogaman", "to": "slugtts", "y": 665, "label": "response text", "variant": "security" },
+    { "from": "slugtts", "to": "yogaman", "y": 720, "label": "audio stream", "variant": "return" },
+    { "from": "yogaman", "to": "speaker", "y": 770, "label": "playback", "variant": "emphasis" }
+  ],
+  "activations": [
+    { "participant": "yogaman", "from": 178, "to": 775, "type": "frontend" },
+    { "participant": "slugstt", "from": 225, "to": 300, "type": "security" },
+    { "participant": "gateway", "from": 385, "to": 535, "type": "backend" },
+    { "participant": "wimpy", "from": 445, "to": 515, "type": "cloud" },
+    { "participant": "slugtts", "from": 660, "to": 730, "type": "security" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Ownership", "items": ["Hermes remains the brain", "slug performs audio operations only", "wimpy supplies model inference"] },
+    { "dot": "rose", "title": "Latency-sensitive path", "items": ["Partial STT results can reduce perceived capture latency", "Streaming or chunked TTS can reduce perceived response latency", "STT and TTS use separate slug devices"] },
+    { "dot": "orange", "title": "Failure boundaries", "items": ["If wimpy is unavailable, Hermes cannot complete model inference", "If slug STT is unavailable, voice input can fall back to text", "If slug TTS is unavailable, response text remains available"] }
+  ]
+}

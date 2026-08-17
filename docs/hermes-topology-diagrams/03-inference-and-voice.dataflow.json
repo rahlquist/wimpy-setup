@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Inference, Speech, and Audio Data Flow",
+    "subtitle": "yogaman connects to slug for voice services, to hermesvm01 for Hermes, and Hermes uses wimpy for inference",
+    "output": "03-inference-and-voice.html",
+    "viewBox": [1260, 820]
+  },
+  "stages": [
+    { "label": "Client" },
+    { "label": "Gateway" },
+    { "label": "Audio edge" },
+    { "label": "Inference" },
+    { "label": "Output" }
+  ],
+  "nodes": [
+    { "id": "mic", "type": "frontend", "label": "yogaman mic", "sublabel": "spoken audio", "stage": 0, "row": 0, "tag": "input" },
+    { "id": "desktop", "type": "frontend", "label": "Hermes Desktop", "sublabel": "session client", "stage": 0, "row": 3, "tag": "UI" },
+    { "id": "gateway", "type": "backend", "label": "hermesvm01", "sublabel": "Hermes reasoning", "stage": 1, "row": 1, "tag": "brain" },
+    { "id": "stt", "type": "security", "label": "STT proxy", "sublabel": "OpenAI-compatible", "stage": 2, "row": 0, "tag": "audio → text" },
+    { "id": "npu", "type": "backend", "label": "FastFlowLM", "sublabel": "Whisper on NPU", "stage": 2, "row": 3, "tag": "slug" },
+    { "id": "router", "type": "messagebus", "label": "llama-swap", "sublabel": "model routing", "stage": 3, "row": 1, "tag": "wimpy" },
+    { "id": "rocm", "type": "cloud", "label": "AMD R9700", "sublabel": "ROCm group", "stage": 3, "row": 3, "tag": "32 GB" },
+    { "id": "cuda", "type": "cloud", "label": "RTX 5060 Ti", "sublabel": "CUDA group", "stage": 3, "row": 4, "tag": "16 GB" },
+    { "id": "tts", "type": "security", "label": "Qwen3-TTS", "sublabel": "iGPU on slug", "stage": 4, "row": 1, "tag": "text → audio" },
+    { "id": "speaker", "type": "external", "label": "yogaman speakers", "sublabel": "spoken response", "stage": 4, "row": 3, "tag": "output" }
+  ],
+  "flows": [
+    { "from": "mic", "to": "stt", "label": "audio frames", "classification": "LAN audio", "variant": "security", "fromSide": "right", "toSide": "left", "via": [[190, 157], [190, 157]], "labelAt": [210, 140] },
+    { "from": "stt", "to": "npu", "label": "Whisper transcription", "classification": "private audio", "variant": "security", "route": "straight", "labelAt": [545, 200] },
+    { "from": "npu", "to": "gateway", "label": "transcript", "classification": "text", "variant": "emphasis", "fromSide": "left", "toSide": "bottom", "route": "vertical-channel", "via": [[580, 470], [580, 330]], "labelAt": [500, 420] },
+    { "from": "desktop", "to": "gateway", "label": "session context", "classification": "control", "variant": "default", "fromSide": "right", "toSide": "left", "route": "vertical-channel", "via": [[390, 500], [390, 270]], "labelAt": [390, 500] },
+    { "from": "gateway", "to": "router", "label": "prompt", "classification": "model request", "variant": "emphasis", "route": "straight", "labelAt": [705, 314] },
+    { "from": "router", "to": "rocm", "label": "primary model", "classification": "ROCm", "variant": "default", "fromSide": "bottom", "toSide": "top", "route": "straight", "labelAt": [840, 440] },
+    { "from": "router", "to": "cuda", "label": "CUDA alias", "classification": "CUDA", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "route": "straight", "labelAt": [900, 540] },
+    { "from": "router", "to": "gateway", "label": "tokens", "classification": "response", "variant": "default", "fromSide": "left", "toSide": "right", "route": "straight", "labelAt": [700, 370] },
+    { "from": "gateway", "to": "desktop", "label": "response text", "classification": "text", "variant": "default", "fromSide": "left", "toSide": "right", "route": "vertical-channel", "via": [[390, 270], [390, 500]], "labelAt": [390, 530] },
+    { "from": "desktop", "to": "tts", "label": "voice request", "classification": "text to slug", "variant": "security", "fromSide": "right", "toSide": "top", "via": [[390, 500], [1040, 210]], "labelAt": [900, 390] },
+    { "from": "tts", "to": "speaker", "label": "PCM / WAV", "classification": "audio output", "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "straight", "labelAt": [1105, 475] }
+  ],
+  "cards": [
+    { "dot": "rose", "title": "Speech path", "items": ["yogaman sends voice requests directly to slug", "Input audio is transcribed on slug's NPU", "Output text is synthesized on slug's iGPU"] },
+    { "dot": "amber", "title": "Model path", "items": ["Hermes sends prompts to wimpy through llama-swap", "llama-swap selects a model alias", "ROCm and CUDA groups are explicit destinations"] },
+    { "dot": "cyan", "title": "Boundary rule", "items": ["hermesvm01 owns conversation state and agent behavior", "slug is an OpenAI-compatible audio edge", "wimpy is the inference resource, not the agent"] }
+  ]
+}

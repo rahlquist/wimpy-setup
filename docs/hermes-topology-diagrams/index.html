@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hermes LAN Topology Diagrams</title>
+<style>
+:root{color-scheme:dark;--bg:#020617;--panel:#0f172a;--border:#1e293b;--text:#f8fafc;--muted:#94a3b8;--cyan:#22d3ee;--green:#34d399;--amber:#fbbf24;--rose:#fb7185}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background-image:linear-gradient(#1e293b22 1px,transparent 1px),linear-gradient(90deg,#1e293b22 1px,transparent 1px);background-size:40px 40px}
+main{max-width:1100px;margin:0 auto;padding:64px 28px 80px}h1{font-size:32px;margin:0 0 10px}h2{font-size:18px;margin:0 0 8px}p{color:var(--muted);max-width:850px}.tag{display:inline-block;color:#020617;background:var(--green);font-size:11px;padding:3px 8px;border-radius:999px;margin-bottom:18px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px;margin-top:34px}.card{display:block;text-decoration:none;color:inherit;background:#0f172acc;border:1px solid var(--border);border-radius:12px;padding:22px;min-height:190px;transition:.15s}.card:hover{border-color:var(--cyan);transform:translateY(-2px)}.num{font-size:12px;color:var(--cyan);margin-bottom:24px}.card p{font-size:13px;margin-bottom:0}.note{border-left:3px solid var(--amber);padding:12px 16px;background:#1e293b66;color:var(--muted);margin-top:32px;font-size:13px}.footer{margin-top:45px;color:#64748b;font-size:12px}
+</style>
+</head>
+<body><main>
+<span class="tag">SANITIZED · NO IP ADDRESSES</span>
+<h1>Hermes LAN Topology</h1>
+<p>A series of architecture diagrams for the yogaman workstation, hermesvm01 gateway, slug speech services, and wimpy dual-GPU inference host.</p>
+<div class="note"><strong>Core rule:</strong> hermesvm01 is the Hermes gateway. yogaman connects to hermesvm01 for Hermes and connects directly to slug for all voice services. wimpy is the inference server behind llama-swap.</div>
+<section class="grid">
+<a class="card" href="01-system-overview.html"><div class="num">01 / SYSTEM ARCHITECTURE</div><h2>Overall topology</h2><p>Control plane, voice plane, and inference plane with host boundaries and service ownership.</p></a>
+<a class="card" href="02-voice-conversation.html"><div class="num">02 / SEQUENCE</div><h2>Live voice conversation</h2><p>User speech → slug STT → Hermes reasoning → wimpy inference → slug TTS → speakers.</p></a>
+<a class="card" href="03-inference-and-voice.html"><div class="num">03 / DATA FLOW</div><h2>Speech and inference paths</h2><p>Audio acceleration split across slug's NPU and iGPU, with model routing across wimpy's ROCm and CUDA groups.</p></a>
+</section>
+<div class="footer">Generated from sanitized local repository documentation. Hostnames retained; IP addresses intentionally omitted.</div>
+</main></body></html>
