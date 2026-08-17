@@ -43,6 +43,6 @@
   "cards": [
     { "dot": "emerald", "title": "Ownership", "items": ["Hermes remains the brain", "slug performs audio operations only", "wimpy supplies model inference"] },
     { "dot": "rose", "title": "Latency-sensitive path", "items": ["Partial STT results can reduce perceived capture latency", "Streaming or chunked TTS can reduce perceived response latency", "STT and TTS use separate slug devices"] },
-    { "dot": "orange", "title": "Failure boundaries", "items": ["If wimpy is unavailable, Hermes cannot complete model inference", "If slug STT is unavailable, voice input can fall back to text", "If slug TTS is unavailable, response text remains available"] }
+    { "dot": "orange", "title": "Failure boundaries", "items": ["If wimpy is unavailable, Hermes fails over to cloud inference automatically", "If slug STT is unavailable, voice input can fall back to text", "If slug TTS is unavailable, response text remains available"] }
   ]
 }
