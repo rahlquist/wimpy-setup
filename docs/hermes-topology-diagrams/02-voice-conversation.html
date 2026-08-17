@@ -439,6 +439,13 @@
     .t-messagebus { fill: var(--messagebus-stroke); }
     .t-external   { fill: var(--external-stroke); }
 
+    /* High-contrast labels: component fills are translucent, so labels must
+       not inherit muted/dark colors that disappear inside the blocks. */
+    [data-theme="dark"] svg .t-primary { fill: #ffffff; }
+    [data-theme="dark"] svg .t-muted { fill: #e2e8f0; }
+    [data-theme="light"] svg .t-primary { fill: #0f172a; }
+    [data-theme="light"] svg .t-muted { fill: #334155; }
+
     /* Arrows */
     .a-default   { stroke: var(--arrow); fill: none; }
     .a-emphasis  { stroke: var(--arrow-emphasis); fill: none; }
