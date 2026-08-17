@@ -18,9 +18,9 @@
         if (!theme) {
           try { theme = localStorage.getItem('archify-theme'); } catch (_) {}
         }
-        if (theme !== 'light' && theme !== 'dark') {
-          theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-        }
+        // Dense architecture diagrams stay dark by default. Light mode remains
+        // available through the toggle or ?theme=light.
+        if (theme !== 'light' && theme !== 'dark') theme = 'dark';
         document.documentElement.setAttribute('data-theme', theme);
       } catch (_) {}
     })();
