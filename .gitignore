@@ -25,3 +25,10 @@ benching/bench.db
 benching/bench_summary.csv
 benching/watcher.log
 *.bak
+
+# ── Local fetch/smoke evidence — never publish ──────────────────────────────
+fetch-model-*.run.log
+fetch-model-*.dossier.md
+evidence-*/
+benching/run-logs/
+*-isolated-*.log
