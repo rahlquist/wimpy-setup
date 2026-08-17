@@ -18,9 +18,9 @@
         if (!theme) {
           try { theme = localStorage.getItem('archify-theme'); } catch (_) {}
         }
-        // Dense architecture diagrams stay dark by default. Light mode remains
-        // available through the toggle or ?theme=light.
-        if (theme !== 'light' && theme !== 'dark') theme = 'dark';
+        if (theme !== 'light' && theme !== 'dark') {
+          theme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
         document.documentElement.setAttribute('data-theme', theme);
       } catch (_) {}
     })();
@@ -439,13 +439,6 @@
     .t-messagebus { fill: var(--messagebus-stroke); }
     .t-external   { fill: var(--external-stroke); }
 
-    /* High-contrast labels: component fills are translucent, so labels must
-       not inherit muted/dark colors that disappear inside the blocks. */
-    [data-theme="dark"] svg .t-primary { fill: #ffffff; }
-    [data-theme="dark"] svg .t-muted { fill: #e2e8f0; }
-    [data-theme="light"] svg .t-primary { fill: #0f172a; }
-    [data-theme="light"] svg .t-muted { fill: #334155; }
-
     /* Arrows */
     .a-default   { stroke: var(--arrow); fill: none; }
     .a-emphasis  { stroke: var(--arrow-emphasis); fill: none; }
@@ -780,7 +773,7 @@
         if (fromUrl) return fromUrl;
         var saved = readStored();
         if (saved === 'light' || saved === 'dark') return saved;
-        return 'dark';
+        return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
       }
 
       function apply(theme) {
@@ -805,7 +798,7 @@
         var onChange = function (e) {
           var saved = readStored();
           if (urlOverride() || saved === 'light' || saved === 'dark') return;
-          apply('dark');
+          apply(e.matches ? 'light' : 'dark');
         };
         if (media.addEventListener) media.addEventListener('change', onChange);
         else if (media.addListener) media.addListener(onChange);
