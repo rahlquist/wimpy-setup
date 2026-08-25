@@ -287,6 +287,14 @@ hf auth login        # paste a token from https://huggingface.co/settings/tokens
 Do NOT commit token files to the repo. `.gitignore` blocks `*token*` and `*.env`
 for this reason. The token is stored by the CLI in `~/.cache/huggingface/`.
 
+The fetcher is the single supported workflow. Do not create an ad-hoc wrapper
+to copy credentials, proxy `hf`, or debug the command. If the `hf` executable
+is not on `PATH` but the `huggingface_hub` Python package is installed,
+`fetch-model.sh` invokes its CLI module directly. Never run the fetcher with
+`bash -x`, put a token in argv/URL text, or write a token to a helper file.
+The script disables inherited shell tracing and redacts common credential
+forms from its diagnostics as defense in depth.
+
 ## Dual-GPU (R9700 + RTX 5060 Ti)
 
 Both GPUs serve inference at the same time, behind one `llama-swap`:

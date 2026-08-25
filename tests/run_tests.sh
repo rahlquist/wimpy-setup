@@ -4,6 +4,7 @@
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+./tests/test_security.sh
 REPO_DIR="$PWD"
 STUBS="$REPO_DIR/tests/stubs"
 SCRIPT="$REPO_DIR/fetch-model.sh"

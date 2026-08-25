@@ -23,6 +23,16 @@
 #     --no-mmproj only when deliberately forcing a text-only registration.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REDACTOR="$SCRIPT_DIR/tools/redact-output.py"
+
+# Never allow inherited xtrace to print credential-bearing shell state. This
+# guard is intentionally unconditional: diagnostics belong in the redacted
+# run log, not in bash's raw trace stream.
+if [[ $- == *x* ]]; then
+  set +x
+  printf '[WARN] shell tracing was enabled; disabled for credential safety.\n' >&2
+fi
 err(){ printf '\033[31m[ERR]\033[0m  %s\n' "$*" >&2; }
 ok(){  printf '\033[32m[OK]\033[0m   %s\n' "$*"; }
 info(){ printf '\033[36m[..]\033[0m   %s\n' "$*"; }
@@ -37,17 +47,18 @@ die(){
 }
 STAGE=""
 STUCK_REASON=""; LAST_RC=""; ROLLED_BACK=""; FAIL_HANDLED=0
+DOSSIER_ENABLED=0
 DOSSIER_DIR="${DOSSIER_DIR:-$PWD}"
 RUN_STARTED="$(date +%Y%m%d%H%M%S)"
 RUN_LOG="${RUN_LOG:-$DOSSIER_DIR/fetch-model-${RUN_STARTED}.run.log}"
 mkdir -p "$DOSSIER_DIR" || { printf '[ERR] cannot create dossier directory: %s\n' "$DOSSIER_DIR" >&2; exit 1; }
-exec > >(tee -a "$RUN_LOG") 2>&1
+exec > >(python3 "$REDACTOR" | tee -a "$RUN_LOG") 2>&1
 set_stage(){ STAGE="$1"; }
 fail(){
   local msg="$1" rc="${2:-1}"
   err "[$STAGE] $msg"
   STUCK_REASON="$msg"; LAST_RC="$rc"; FAIL_HANDLED=1
-  recover_dossier
+  (( DOSSIER_ENABLED )) && recover_dossier
   exit "$rc"
 }
 recover_dossier(){
@@ -59,10 +70,10 @@ recover_dossier(){
     echo
     echo "## What it was doing"
     echo "STAGE: ${STAGE:-unknown}"
-    echo "SRC_CLASS: ${SRC_CLASS:-?}   SPEC: ${SPEC:-?}"
+    echo "SRC_CLASS: ${SRC_CLASS:-?}   SPEC: $(printf '%s' "${SPEC:-?}" | python3 "$REDACTOR")"
     echo
     echo "## Stuck at"
-    echo "$STUCK_REASON"
+    echo "$(printf '%s' "$STUCK_REASON" | python3 "$REDACTOR")"
     echo
     echo "## Environment"
     echo "- llama-server : ${LLAMA_SERVER:-?}"
@@ -83,7 +94,7 @@ recover_dossier(){
       echo "- log: $SMOKE_LOG"
       echo
       echo '```'
-      tail -40 "$SMOKE_LOG"
+      tail -40 "$SMOKE_LOG" | python3 "$REDACTOR"
       echo '```'
     else
       echo "- (no smoke log captured)"
@@ -94,7 +105,8 @@ recover_dossier(){
     echo
     echo "## Resume command"
     local resume="cd \"$(pwd)\" && ./fetch-model.sh"
-    local rspec; rspec="$(printf '%q' "${SPEC:-}")"; resume+=" ${rspec}"
+    local safe_spec; safe_spec="$(printf '%s' "${SPEC:-}" | python3 "$REDACTOR")"
+    local rspec; rspec="$(printf '%q' "$safe_spec")"; resume+=" ${rspec}"
     [[ -n "${CPU_MOE:-}" ]] && resume+=" --n-cpu-moe $CPU_MOE"
     (( ASSUME_YES )) && resume+=" -y"
     (( DO_SMOKE )) || resume+=" --no-smoke"
@@ -103,8 +115,8 @@ recover_dossier(){
     echo
     echo "## Prompt to paste to Hermes"
     echo '```'
-    echo "fetch-model.sh got stuck at stage '${STAGE:-?}' while handling '${SPEC:-?}'."
-    echo "Reason: $STUCK_REASON"
+    echo "fetch-model.sh got stuck at stage '${STAGE:-?}' while handling '$(printf '%s' "${SPEC:-?}" | python3 "$REDACTOR")'."
+    echo "Reason: $(printf '%s' "$STUCK_REASON" | python3 "$REDACTOR")"
     echo "Model file present: $([[ -f "${MODEL_PATH:-}" ]] && echo yes || echo no). Config rolled back: ${ROLLED_BACK:+yes}${ROLLED_BACK:-no}."
     echo "Config backup (if any): ${CONFIG_BACKUP:-none}. Complete output is in ${RUN_LOG:-the run log}. Read that file and help me recover while preserving the evidence."
     echo '```'
@@ -148,6 +160,7 @@ NAME_EXPLICIT=""
 SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""
 KEEP_SOURCE=0; SOURCE_COPIED=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""; REMOTE_FILE=""
 MMPROJ_PATH=""
+HF_CMD=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -n) NAME="${2:-}"; NAME_EXPLICIT=1; shift 2;;
@@ -242,10 +255,22 @@ classify_input "$SPEC" || die "unsupported spec: $SPEC (expected hf://..., http(
 set_stage "classify"
 [[ "$FILE" == *.gguf && "$FILE" != *[[:space:]]* ]] || die "model filename must be one .gguf file"
 case "$SRC_CLASS" in
-  hf) command -v hf >/dev/null || die "'hf' not found. Install Hugging Face Hub CLI first.";;
+  hf)
+    # Prefer the installed `hf` executable. Some distro packages install the
+    # same CLI module without placing its console-script shim on PATH; invoke
+    # that module directly instead of making the operator build a wrapper.
+    if command -v hf >/dev/null 2>&1; then
+      HF_CMD=(hf)
+    elif python3 -c 'import huggingface_hub.cli.hf' >/dev/null 2>&1; then
+      HF_CMD=(python3 -m huggingface_hub.cli.hf)
+    else
+      die "Hugging Face Hub CLI unavailable: install huggingface_hub with the 'hf' command."
+    fi
+    ;;
   url) command -v curl >/dev/null || die "'curl' not found. Install curl first.";;
   local) [[ -r "$LOCAL_SRC" ]] || die "local source not readable: $LOCAL_SRC";;
 esac
+DOSSIER_ENABLED=1
 REPO_ID="${OWNER}/${REPO}"
 
 # The example may be supplied as an unquoted command with a separate final N.
@@ -352,7 +377,7 @@ hf_download_with_progress(){
   local tty="/dev/tty"; [[ -c "$tty" ]] || tty="/dev/stderr"
   # Logged one-liner (stdout -> run-log) so the download is still auditable.
   printf '[..]   downloading %s (%s)\n' "$file" "$(numfmt --to=iec "$total" 2>/dev/null || echo "$total")" >&1
-  hf download "$repo" "$file" --local-dir "$dest" >/dev/null 2>&1 &
+  "${HF_CMD[@]}" download "$repo" "$file" --local-dir "$dest" >/dev/null 2>&1 &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     cur=0
@@ -977,7 +1002,7 @@ PY
   set -e
   case "$sidecar_rc" in
     0)
-      warn "metadata sidecar already exists: $SIDECAR (consistent); primary registration will be skipped."
+      warn "model already registered: metadata sidecar exists and is consistent: $SIDECAR; primary registration will be skipped."
       PRIMARY_ALREADY=1
       ;;
     2) die "name collision: '$NAME' already registered for a different model ($SIDECAR)";;
@@ -1052,7 +1077,7 @@ set -e
 rm -f "$CMDFILE" "$DETAILS_FILE"
 case "$rc" in
   0) ok "registered '$NAME' in $CONFIG.";;
-  3) rm -f -- "$CONFIG_BACKUP" "$SIDECAR_TMP" "$INVENTORY_TMP"; PIPELINE_OK=1; warn "model id '$NAME' already exists; config untouched."; exit 0;;
+  3) rm -f -- "$CONFIG_BACKUP" "$SIDECAR_TMP" "$INVENTORY_TMP"; PIPELINE_OK=1; warn "model id '$NAME' already registered; config untouched."; exit 0;;
   *) rm -f -- "$CONFIG_BACKUP" "$SIDECAR_TMP" "$INVENTORY_TMP"; die "config insertion failed; config untouched.";;
 esac
 
