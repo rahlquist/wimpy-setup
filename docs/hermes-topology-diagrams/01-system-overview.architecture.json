@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Hermes LAN Voice + Inference Topology",
+    "subtitle": "yogaman connects independently to hermesvm01 for Hermes and slug for all voice services",
+    "output": "01-system-overview.html",
+    "viewBox": [1420, 760]
+  },
+  "components": [
+    { "id": "yogaman", "type": "frontend", "label": "yogaman", "sublabel": "Hermes Desktop", "pos": [40, 320], "size": [150, 70], "tag": "user surface" },
+    { "id": "gateway", "type": "backend", "label": "hermesvm01", "sublabel": "Hermes gateway", "pos": [280, 320], "size": [170, 70], "tag": "control + brain" },
+    { "id": "hermesstate", "type": "database", "label": "Hermes state", "sublabel": "sessions · skills · memory", "pos": [280, 470], "size": [170, 70] },
+    { "id": "slug", "type": "backend", "label": "slug", "sublabel": "voice services host", "pos": [560, 160], "size": [170, 70], "tag": "STT + TTS" },
+    { "id": "sttproxy", "type": "security", "label": "STT proxy", "sublabel": "OpenAI-compatible", "pos": [820, 80], "size": [170, 64], "tag": "audio → text" },
+    { "id": "npu", "type": "backend", "label": "FastFlowLM ASR", "sublabel": "Whisper · NPU", "pos": [1080, 80], "size": [170, 64] },
+    { "id": "tts", "type": "security", "label": "TTS server", "sublabel": "Qwen3-TTS · iGPU", "pos": [820, 230], "size": [170, 64], "tag": "text → audio" },
+    { "id": "mic", "type": "external", "label": "yogaman microphone", "sublabel": "local capture", "pos": [40, 180], "size": [170, 64] },
+    { "id": "speaker", "type": "external", "label": "yogaman speakers", "sublabel": "local playback", "pos": [40, 520], "size": [170, 64] },
+    { "id": "wimpy", "type": "cloud", "label": "wimpy.home.lan", "sublabel": "dual-GPU inference host", "pos": [560, 570], "size": [190, 70], "tag": "llama-swap :8080" },
+    { "id": "llamaswap", "type": "backend", "label": "llama-swap", "sublabel": "model router", "pos": [850, 570], "size": [170, 64] },
+    { "id": "gpur9700", "type": "backend", "label": "AMD R9700", "sublabel": "ROCm · 32 GB", "pos": [1100, 500], "size": [170, 64] },
+    { "id": "gpucuda", "type": "backend", "label": "RTX 5060 Ti", "sublabel": "CUDA · 16 GB", "pos": [1100, 630], "size": [170, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Hermes control plane", "wraps": ["gateway", "hermesstate"] },
+    { "kind": "region", "label": "slug audio plane", "wraps": ["slug", "sttproxy", "npu", "tts"] },
+    { "kind": "region", "label": "wimpy inference plane", "wraps": ["wimpy", "llamaswap", "gpur9700", "gpucuda"] }
+  ],
+  "connections": [
+    { "from": "yogaman", "to": "gateway", "label": "remote session", "variant": "emphasis" },
+    { "from": "gateway", "to": "hermesstate", "label": "persist", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 48 },
+    { "from": "yogaman", "to": "slug", "label": "voice services", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
+    { "from": "mic", "to": "yogaman", "label": "local audio", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+    { "from": "yogaman", "to": "sttproxy", "label": "audio → slug", "variant": "security", "fromSide": "right", "toSide": "left" },
+    { "from": "sttproxy", "to": "npu", "label": "transcribe", "variant": "security" },
+    { "from": "tts", "to": "yogaman", "label": "audio → playback", "variant": "security", "fromSide": "left", "toSide": "right" },
+    { "from": "yogaman", "to": "speaker", "label": "local playback", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "from": "gateway", "to": "wimpy", "label": "LLM inference", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "labelDy": 58 },
+    { "from": "wimpy", "to": "llamaswap", "label": "route model", "route": "orthogonal-h" },
+    { "from": "llamaswap", "to": "gpur9700", "label": "ROCm group", "variant": "dashed", "fromSide": "right", "toSide": "left" },
+    { "from": "llamaswap", "to": "gpucuda", "label": "CUDA aliases", "variant": "dashed", "fromSide": "right", "toSide": "left" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Control plane", "items": ["yogaman runs Hermes Desktop", "hermesvm01 is the gateway and reasoning host", "Gateway owns execution state and agent configuration"] },
+    { "dot": "rose", "title": "Voice path", "items": ["yogaman connects directly to slug for voice services", "STT uses FastFlowLM on slug's NPU", "TTS uses Qwen3-TTS on slug's iGPU"] },
+    { "dot": "amber", "title": "Inference plane", "items": ["wimpy exposes llama-swap to Hermes", "AMD R9700 is the primary ROCm group", "RTX 5060 Ti serves the CUDA model group"] }
+  ]
+}
