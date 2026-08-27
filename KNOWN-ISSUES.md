@@ -80,14 +80,14 @@ MEDIUM = friction/inconsistency, LOW = polish.
   but cleanup is "a deliberate separate step." Fix: per-script "safe to
   re-run?" line in README table + run-all warning when resuming from 05.
 
-- [ ] **H9. llama-swap.service: no hardening, no StartLimitBurst.**
+- [ ] **H9. llama-hugs.service: no hardening, no StartLimitBurst.**
   Infinite crash-loop against the GPU possible; User=rahlquist hardcoded.
   Fix: hardening block (NoNewPrivileges, ProtectSystem, PrivateTmp) +
   StartLimitBurst=5/StartLimitIntervalSec=300.
 
 - [ ] **H10. Run-as-root silently misconfigures everything.**
   CURRENT_USER="${SUDO_USER:-$USER}" in 02/05/09 — run directly as root, root
-  gets the docker/libvirt groups, llama-swap runs as root, the human gets
+  gets the docker/libvirt groups, llama-hugs runs as root, the human gets
   nothing. Fix: refuse root, require sudo-from-user.
 
 - [ ] **H11. Misleading success logs.**
@@ -112,7 +112,7 @@ MEDIUM = friction/inconsistency, LOW = polish.
 - [ ] M1. CLAUDE.md presents superseded migration narrative first, present
   tense; struck-through "OBSOLETE" blocks invite copy-paste errors.
   "Current state" first, history to appendix.
-- [ ] M2. 3 legacy llama-swap-config.yaml entries bind 127.0.0.1 while 23 bind
+- [ ] M2. 3 legacy llama-hugs-config.yaml entries bind 127.0.0.1 while 23 bind
   0.0.0.0 — VMs get connection-refused for exactly those models, no comment
   why. Mixed long/short flag styles vs the file's "ONE consistent method."
 - [ ] M3. lib/common.sh:59 full `pacman -Syu --noconfirm` mid-run, no preflight
@@ -121,7 +121,7 @@ MEDIUM = friction/inconsistency, LOW = polish.
   failures; libvirtd enable fails opaquely later.
 - [ ] M5. benching/bench_model.py:196-212 CSV summary can mix tonight's and a
   previous night's results in one mislabeled row after partial re-runs.
-- [ ] M6. Unexplained step gaps 03/06; jargon wall (GGUF, MoE, llama-swap, KVM,
+- [ ] M6. Unexplained step gaps 03/06; jargon wall (GGUF, MoE, llama-hugs, KVM,
   qcow2); dnsmasq (08:5) vs OPNsense (README:41) naming inconsistency.
   Glossary + one sentence per gap.
 - [ ] M7. Dead-end error messages: 08:125 "configure br0 manually" exits;

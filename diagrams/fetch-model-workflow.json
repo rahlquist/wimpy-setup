@@ -11,7 +11,7 @@
     {"id": "operator", "label": "Operator / Shell"},
     {"id": "fetch", "label": "fetch-model.sh"},
     {"id": "sources", "label": "Hugging Face / Files"},
-    {"id": "runtime", "label": "llama-server + llama-swap"},
+    {"id": "runtime", "label": "llama-server + llama-hugs"},
     {"id": "failure", "label": "Failure / Recovery", "variant": "exception"}
   ],
   "phases": [

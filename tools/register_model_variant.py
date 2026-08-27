@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add a llama-swap GPU variant and its metadata sidecar transactionally."""
+"""Add a llama-hugs GPU variant and its metadata sidecar transactionally."""
 from __future__ import annotations
 import argparse, json, os, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
@@ -84,22 +84,22 @@ def main() -> int:
     block = [f'{child_indent}"{args.name}":', f'{field_indent}ttl: {args.ttl}', f'{field_indent}env: ["{args.env}"]']
     detail_lines = []
     if mmproj_path:
-        detail_lines.append(f"  capabilities:")
-        detail_lines.append(f'    in: ["text", "image"]')
-        detail_lines.append(f'    out: ["text"]')
-    detail_lines.append(f"  metadata:")
-    detail_lines.append(f"    source_repo: {json.dumps(args.repository)}")
-    detail_lines.append(f"    repo_url: {json.dumps(repo_meta.get('repo_url', ''))}")
-    detail_lines.append(f"    file_size_bytes: {repo_meta.get('file_size_bytes')}")
-    detail_lines.append(f"    file_sha256: {json.dumps(repo_meta.get('file_sha256') or '')}")
-    detail_lines.append(f"    vision: {json.dumps(bool(mmproj_path))}")
+        detail_lines.append(f"{field_indent}capabilities:")
+        detail_lines.append(f'{field_indent}  in: ["text", "image"]')
+        detail_lines.append(f'{field_indent}  out: ["text"]')
+    detail_lines.append(f"{field_indent}metadata:")
+    detail_lines.append(f"{field_indent}  source_repo: {json.dumps(args.repository)}")
+    detail_lines.append(f"{field_indent}  repo_url: {json.dumps(repo_meta.get('repo_url', ''))}")
+    detail_lines.append(f"{field_indent}  file_size_bytes: {repo_meta.get('file_size_bytes')}")
+    detail_lines.append(f"{field_indent}  file_sha256: {json.dumps(repo_meta.get('file_sha256') or '')}")
+    detail_lines.append(f"{field_indent}  vision: {json.dumps(bool(mmproj_path))}")
     if mmproj_path:
-        detail_lines.append(f"    mmproj: {json.dumps(mmproj_path)}")
-        detail_lines.append(f"    mmproj_filename: {json.dumps(mmproj_path.rsplit('/', 1)[-1])}")
+        detail_lines.append(f"{field_indent}  mmproj: {json.dumps(mmproj_path)}")
+        detail_lines.append(f"{field_indent}  mmproj_filename: {json.dumps(mmproj_path.rsplit('/', 1)[-1])}")
     if has_mtp:
-        detail_lines.append(f"    mtp: true")
-        detail_lines.append(f'    mtp_flag: "--spec-type draft-mtp"')
-    detail_lines.append(f"    pipeline_tag: {json.dumps(repo_meta.get('pipeline_tag', '') or '')}")
+        detail_lines.append(f"{field_indent}  mtp: true")
+        detail_lines.append(f'{field_indent}  mtp_flag: "--spec-type draft-mtp"')
+    detail_lines.append(f"{field_indent}  pipeline_tag: {json.dumps(repo_meta.get('pipeline_tag', '') or '')}")
     block += detail_lines + [f'{field_indent}cmd: |'] + [cmd_indent + line for line in command]
     new_text = text[:insert_at] + group_line + text[insert_at:]
     new_lines = new_text.splitlines()

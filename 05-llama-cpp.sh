@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 05-llama-cpp.sh — build llama.cpp (ROCm/HIP, R9700) from source + install llama-swap
+# 05-llama-cpp.sh — build llama.cpp (ROCm/HIP, R9700) from source + install llama-hugs
 #
 # Hardware: AMD Radeon AI PRO R9700 (Navi 48, gfx1201, 32GB) = inference GPU
 #           NVIDIA GT 710 (GK208B)  = display only, driven by nouveau (not
@@ -19,7 +19,7 @@
 # very frequently (dozens per week), so re-run the GPU validation from
 # CHANGELOG.md after any rebuild rather than assuming it still works.
 #
-# llama-swap listens on 0.0.0.0:8080 so hermesvm01 can reach it over br0.
+# llama-hugs listens on 0.0.0.0:8080 so hermesvm01 can reach it over br0.
 # Verify GPU after install: /usr/local/bin/llama-server --list-devices
 # (expect "ROCm0: AMD Radeon AI PRO R9700 ...")
 
@@ -29,7 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 detect_os
 
-step "05 — llama.cpp (ROCm/HIP, gfx1201) + llama-swap"
+step "05 — llama.cpp (ROCm/HIP, gfx1201) + llama-hugs"
 require_root_or_sudo
 
 BUILD_DIR="$HOME/src/llama.cpp"
@@ -113,14 +113,14 @@ if [ -n "$BAD_LIBS" ]; then
 fi
 log "  confirmed: all libllama/libggml/libmtmd resolve from /usr/local/lib"
 
-# ── llama-swap binary ─────────────────────────────────────────────────────────
-# Release asset is a tarball named: llama-swap_<ver>_linux_amd64.tar.gz
+# ── llama-hugs binary ─────────────────────────────────────────────────────────
+# Release asset is a tarball named: llama-hugs_<ver>_linux_amd64.tar.gz
 # (underscores, gzipped archive — not a bare binary). Whole block is non-fatal
 # so a download/network hiccup never kills the step; build is already done.
-step "Installing llama-swap"
+step "Installing llama-hugs"
 
-install_llama_swap() {
-    local api="https://api.github.com/repos/mostlygeek/llama-swap/releases/latest"
+install_llama_hugs() {
+    local api="https://api.github.com/repos/mostlygeek/llama-hugs/releases/latest"
     local url tmp dir
 
     url="$(curl -fsSL "$api" 2>/dev/null \
@@ -130,50 +130,50 @@ install_llama_swap() {
         | cut -d'"' -f4)" || true
 
     if [[ -z "$url" ]]; then
-        warn "Could not auto-detect llama-swap release URL (GitHub API rate limit?)"
-        warn "Install manually: https://github.com/mostlygeek/llama-swap/releases"
+        warn "Could not auto-detect llama-hugs release URL (GitHub API rate limit?)"
+        warn "Install manually: https://github.com/mostlygeek/llama-hugs/releases"
         return 1
     fi
 
     info "Downloading: $(basename "$url")"
     tmp="$(mktemp -d)"
-    if ! curl -fsSL "$url" -o "${tmp}/llama-swap.tar.gz"; then
-        warn "Download failed — install llama-swap manually later"
+    if ! curl -fsSL "$url" -o "${tmp}/llama-hugs.tar.gz"; then
+        warn "Download failed — install llama-hugs manually later"
         rm -rf "$tmp"
         return 1
     fi
 
-    tar -xzf "${tmp}/llama-swap.tar.gz" -C "$tmp"
-    # The binary inside the tarball is named 'llama-swap'
+    tar -xzf "${tmp}/llama-hugs.tar.gz" -C "$tmp"
+    # The binary inside the tarball is named 'llama-hugs'
     local bin
-    bin="$(find "$tmp" -type f -name 'llama-swap' | head -1)"
+    bin="$(find "$tmp" -type f -name 'llama-hugs' | head -1)"
     if [[ -z "$bin" ]]; then
-        warn "llama-swap binary not found inside tarball"
+        warn "llama-hugs binary not found inside tarball"
         rm -rf "$tmp"
         return 1
     fi
 
-    sudo install -m 0755 "$bin" /usr/local/bin/llama-swap
+    sudo install -m 0755 "$bin" /usr/local/bin/llama-hugs
     rm -rf "$tmp"
-    log "llama-swap installed: $(/usr/local/bin/llama-swap --version 2>/dev/null | head -1 || echo OK)"
+    log "llama-hugs installed: $(/usr/local/bin/llama-hugs --version 2>/dev/null | head -1 || echo OK)"
 }
 
-install_llama_swap || warn "llama-swap install skipped — see message above"
+install_llama_hugs || warn "llama-hugs install skipped — see message above"
 
-# ── llama-swap config ─────────────────────────────────────────────────────────
-SWAP_CFG="/etc/llama-swap/config.yaml"
-sudo mkdir -p /etc/llama-swap
+# ── llama-hugs config ─────────────────────────────────────────────────────────
+SWAP_CFG="/etc/llama-hugs/config.yaml"
+sudo mkdir -p /etc/llama-hugs
 
 # Back up any existing config before we touch this path (CLAUDE.md hard rule #1).
 # The write below is guarded by [[ ! -f ]], so this is a no-op on a fresh
 # install; it becomes a real safety net if that guard is ever relaxed.
 [ -f "$SWAP_CFG" ] && sudo cp "$SWAP_CFG" \
-    "/etc/llama-swap/$(date +%Y%m%d%H%M%S)-config.yaml.bak"
+    "/etc/llama-hugs/$(date +%Y%m%d%H%M%S)-config.yaml.bak"
 
 if [[ ! -f "$SWAP_CFG" ]]; then
-    log "Writing llama-swap config skeleton"
+    log "Writing llama-hugs config skeleton"
     sudo tee "$SWAP_CFG" > /dev/null <<'CFG'
-# /etc/llama-swap/config.yaml — wimpy
+# /etc/llama-hugs/config.yaml — wimpy
 #
 # GPU layout:
 #   R9700 (32GB, ROCm)  — inference
@@ -183,7 +183,7 @@ if [[ ! -f "$SWAP_CFG" ]]; then
 # --device also makes a missing/wrong GPU a hard startup failure instead of
 # a silent CPU fallback — do not drop it, see CHANGELOG.md's 2026-07-07 entry
 # for exactly what happens when GPU pinning is missing.
-# llama-swap listens on 0.0.0.0:8080 — reachable from hermesvm01 over br0.
+# llama-hugs listens on 0.0.0.0:8080 — reachable from hermesvm01 over br0.
 #
 # Verify GPU: /usr/local/bin/llama-server --list-devices
 
@@ -218,18 +218,18 @@ fi
 SVCUSER="${SUDO_USER:-$USER}"
 # This tee overwrites the unit unconditionally on every run — back it up first
 # (CLAUDE.md hard rule #1).
-[ -f /etc/systemd/system/llama-swap.service ] && \
-  sudo cp /etc/systemd/system/llama-swap.service \
-          "/etc/systemd/system/$(date +%Y%m%d%H%M%S)-llama-swap.service.bak"
-sudo tee /etc/systemd/system/llama-swap.service > /dev/null <<SVC
+[ -f /etc/systemd/system/llama-hugs.service ] && \
+  sudo cp /etc/systemd/system/llama-hugs.service \
+          "/etc/systemd/system/$(date +%Y%m%d%H%M%S)-llama-hugs.service.bak"
+sudo tee /etc/systemd/system/llama-hugs.service > /dev/null <<SVC
 [Unit]
-Description=llama-swap model router (wimpy)
+Description=llama-hugs model router (wimpy)
 After=network.target
 
 [Service]
 Type=simple
 User=${SVCUSER}
-ExecStart=/usr/local/bin/llama-swap --config /etc/llama-swap/config.yaml -watch-config
+ExecStart=/usr/local/bin/llama-hugs --config /etc/llama-hugs/config.yaml -watch-config
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -242,7 +242,7 @@ SVC
 sudo systemctl daemon-reload
 
 # ── Open firewall port 8080 ───────────────────────────────────────────────────
-step "Firewall — port 8080 (llama-swap, inbound from any)"
+step "Firewall — port 8080 (llama-hugs, inbound from any)"
 open_firewall_port 8080
 
 log "05-llama-cpp complete"
@@ -250,7 +250,7 @@ info ""
 info "  llama-server : $(/usr/local/bin/llama-server --version 2>&1 | head -1)"
 info "  ROCm device  : $(/usr/local/bin/llama-server --list-devices 2>&1 | grep '^ *ROCm0')"
 info "  Config       : $SWAP_CFG  ← add model paths, then:"
-info "  Start        : sudo systemctl enable --now llama-swap"
+info "  Start        : sudo systemctl enable --now llama-hugs"
 info "  hermesvm01 connects to : http://wimpy.home.lan:8080/v1"
 info ""
 info "  If llama-cpp-rocm/ggml-rocm pacman packages are still installed,"

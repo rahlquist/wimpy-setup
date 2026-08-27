@@ -8,7 +8,7 @@
 # Your dnsmasq DHCP reservation (MAC → 192.168.8.248) assigns the IP.
 # VMs plug into br0 and get their own DHCP-reserved IPs.
 #
-# Also opens port 8080 (llama-swap) in firewalld so VMs can reach it.
+# Also opens port 8080 (llama-hugs) in firewalld so VMs can reach it.
 
 set -euo pipefail
 
@@ -148,9 +148,9 @@ sudo pacman -S --needed --noconfirm openssh 2>/dev/null || \
     sudo apt-get install -y openssh-server 2>/dev/null || true
 sudo systemctl enable --now sshd
 
-# ── Firewall — open port 8080 (llama-swap) inbound from any ──────────────────
+# ── Firewall — open port 8080 (llama-hugs) inbound from any ──────────────────
 # Per design: wimpy host firewall is low-priority (score 3), accept from ANY.
-step "Firewall — port 8080 (llama-swap)"
+step "Firewall — port 8080 (llama-hugs)"
 open_firewall_port 8080 "$BRIDGE"
 
 # ── Summary ───────────────────────────────────────────────────────────────────

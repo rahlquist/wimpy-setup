@@ -38,7 +38,7 @@ PY="/usr/bin/python3"
 WATCHER="$BENCH_DIR/model_watcher.py"
 REPORTER="$BENCH_DIR/report.py"
 LOG="$BENCH_DIR/watcher.log"
-CONFIG="/home/rahlquist/wimpy-setup/llama-swap-config.yaml"
+CONFIG="/home/rahlquist/wimpy-setup/llama-hugs-config.yaml"
 
 ROCm_BIN="/usr/local/bin/llama-bench"      # ROCm build -> AMD R9700
 CUDA_BIN="/opt/llama-cuda/bin/llama-bench" # CUDA build -> RTX 5060 Ti

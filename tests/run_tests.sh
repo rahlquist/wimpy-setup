@@ -20,7 +20,7 @@ check_contains() { local d="$1" n="$2" h="$3"
 
 make_td() {
   local td="$(mktemp -d)"
-  cp "$REPO_DIR/llama-swap-config.yaml" "$td/llama-swap-config.yaml"
+  cp "$REPO_DIR/llama-hugs-config.yaml" "$td/llama-hugs-config.yaml"
   mkdir -p "$td/model-metadata"
   printf '%s' "$td"
 }
@@ -33,7 +33,7 @@ run_fetch() {
     FIXTURES="$REPO_DIR/tests/fixtures" \
     HF_STUB_FIXTURE="${HF_STUB_FIXTURE:-tiny}" \
     LLAMA_SERVER="$STUBS/llama-server" \
-    LLAMA_SWAP_CONFIG="$td/llama-swap-config.yaml" \
+    LLAMA_SWAP_CONFIG="$td/llama-hugs-config.yaml" \
     MODEL_METADATA_DIR="$td/model-metadata" \
     INVENTORY_PATH="$td/model-inventory.html" \
     MODELS_DIR="$td/models" \
@@ -118,7 +118,7 @@ td="$(make_td)"; rc=0; OUT="$(HF_STUB_FIXTURE=lowctx run_fetch "$td" -y --no-dep
 check_exit "T5: low ctx exits 0" 0 "$rc"
 check_contains "T5: native context detected" "native context" "$OUT"
 check_contains "T5: Hermes compatibility context" "64000" "$OUT"
-grep -qF -- '--ctx-size 64000' "$td/llama-swap-config.yaml" && ok "T5: low ctx registered with --ctx-size 64000" || fail "T5: low ctx missing --ctx-size 64000"
+grep -qF -- '--ctx-size 64000' "$td/llama-hugs-config.yaml" && ok "T5: low ctx registered with --ctx-size 64000" || fail "T5: low ctx missing --ctx-size 64000"
 rm -rf "$td"
 
 # T6: Non-MoE model + --n-cpu-moe dies
@@ -212,14 +212,14 @@ rc=0; OUT="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" 
 check_exit "T17: same name different repo registers scoped id" 0 "$rc"
 check_contains "T17: scoped id message" "registering this copy as" "$OUT"
 [[ -f "$td/models/model.gguf" ]] && ok "T17: model file present" || fail "T17: model file missing"
-grep -qF '"owner-model":' "$td/llama-swap-config.yaml" && ok "T17: scoped id in config" || fail "T17: scoped id not in config"
+grep -qF '"owner-model":' "$td/llama-hugs-config.yaml" && ok "T17: scoped id in config" || fail "T17: scoped id not in config"
 rm -rf "$td"
 
 # T17b: Same NAME from the SAME repo is idempotent, not re-scoped
 td="$(make_td)"; rc=0
 OUT="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
 check_exit "T17b: first registration exits 0" 0 "$rc"
-grep -qF '"model":' "$td/llama-swap-config.yaml" && ok "T17b: plain id in config" || fail "T17b: plain id missing"
+grep -qF '"model":' "$td/llama-hugs-config.yaml" && ok "T17b: plain id in config" || fail "T17b: plain id missing"
 rm -rf "$td"
 
 # T18: Idempotent re-registration

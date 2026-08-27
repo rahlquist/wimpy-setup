@@ -22,7 +22,7 @@ bench_model = load("bench_model_test_module", BENCH_PATH)
 
 class BenchmarkRoutingTests(unittest.TestCase):
     def test_config_aliases_are_source_of_gpu_routing(self):
-        classes = watcher.model_gpu_classes(str(ROOT / "llama-swap-config.yaml"))
+        classes = watcher.model_gpu_classes(str(ROOT / "llama-hugs-config.yaml"))
         self.assertIn("rocm", classes[
             "/home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q2_K_XL.gguf"])
         self.assertIn("cuda", classes[

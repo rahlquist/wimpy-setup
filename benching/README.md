@@ -19,7 +19,7 @@ Three scripts:
 ## GPU routing policy
 
 GGUF files are backend-neutral. The benchmark wrapper uses the explicit
-`amd-r9700` and `nvidia-5060ti` groups in `llama-swap-config.yaml` as its
+`amd-r9700` and `nvidia-5060ti` groups in `llama-hugs-config.yaml` as its
 source of truth, rather than renaming or duplicating multi-GB files. A single
 GGUF intentionally exposed through both groups is benchmarked once on each
 GPU; a file in only one group is benchmarked only there; an unmapped file is

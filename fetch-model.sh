@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # fetch-model.sh — download a GGUF model file from Hugging Face, HTTP(S), or
 # a local path, inspect its metadata, smoke-test on the configured GPU,
-# register in llama-swap, and update the repository model inventory.
+# register in llama-hugs, and update the repository model inventory.
 #
 # Usage:
 #   ./fetch-model.sh [options] "hf download hf://owner/repo/file.gguf [N]"
@@ -138,8 +138,8 @@ GGUF_INSPECTOR="${GGUF_INSPECTOR:-$SCRIPT_DIR/tools/gguf_metadata.py}"
 INVENTORY_RENDERER="${INVENTORY_RENDERER:-$SCRIPT_DIR/tools/render_model_inventory.py}"
 INVENTORY_PATH="${INVENTORY_PATH:-$SCRIPT_DIR/model-inventory.html}"
 METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
-DEPLOY_SOURCE_CONFIG="${DEPLOY_SOURCE_CONFIG:-$SCRIPT_DIR/llama-swap-config.yaml}"
-DEPLOY_HELPER="${DEPLOY_HELPER:-/usr/local/sbin/llama-swap-deploy}"
+DEPLOY_SOURCE_CONFIG="${DEPLOY_SOURCE_CONFIG:-$SCRIPT_DIR/llama-hugs-config.yaml}"
+DEPLOY_HELPER="${DEPLOY_HELPER:-/usr/local/sbin/llama-hugs-deploy}"
 MMPROJ_RESOLVER="${MMPROJ_RESOLVER:-$SCRIPT_DIR/tools/resolve_and_fetch_mmproj.py}"
 REPO_META_TOOL="${REPO_META_TOOL:-$SCRIPT_DIR/tools/fetch_repo_metadata.py}"
 
@@ -261,7 +261,7 @@ detect_config(){
   [[ -n "${LLAMA_SWAP_CONFIG:-}" && -f "${LLAMA_SWAP_CONFIG:-}" ]] && { printf '%s\n' "$LLAMA_SWAP_CONFIG"; return; }
   local root
   root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
-  [[ -n "$root" && -f "$root/llama-swap-config.yaml" ]] && { printf '%s\n' "$root/llama-swap-config.yaml"; return; }
+  [[ -n "$root" && -f "$root/llama-hugs-config.yaml" ]] && { printf '%s\n' "$root/llama-hugs-config.yaml"; return; }
 }
 detect_gpu_device(){
   local list device
@@ -326,7 +326,7 @@ printf '  │ repo         : %s\n' "$REPO_ID"
 printf '  │ file         : %s\n' "$FILE"
 printf '  │ llama-server : %s\n' "$LLAMA_SERVER"
 printf '  │ gpu device   : %s  (pin: %s=%s)\n' "$GPU_DEVICE" "$GPU_ENV_VAR" "$GPU_PIN_VALUE"
-printf '  │ llama-swap   : %s\n' "${CONFIG:-<not found>}"
+printf '  │ llama-hugs   : %s\n' "${CONFIG:-<not found>}"
 printf '  │ models dir   : %s\n' "$MODELS_DIR"
 printf '  │ ctx request  : %s\n' "$CTX"
 printf '  │ cpu MoE      : %s\n' "${CPU_MOE:-none}"
@@ -500,13 +500,17 @@ set_stage "acquire"
 acquire_model
 
 # --- Large-file mmap guard --------------------------------------------------
-# Kernel 7.2.0-rc5-1-cachyos-rc (amdgpu/kfd) hangs forever uploading weights
-# for GGUFs of ~21 GB+ when the file is loaded via mmap: the host thread spins
-# in hsa_signal_wait while the hipMemcpy never completes. Diagnosed 2026-08-14
+# Kernel 7.2.0-rc5-1-cachyos-rc (amdgpu/kfd) hung forever uploading weights
+# for GGUFs of ~21 GB+ when the file is loaded via mmap: the host thread spun
+# in hsa_signal_wait while the hipMemcpy never completed. Diagnosed 2026-08-14
 # via A/B kernel test (same ROCm 7.2.4 userspace; mmap loads fine on 7.1.5).
+# FIXED in 7.2.0-rc7-1-cachyos-rc (verified 2026-08-15: 23.27 GiB mmap load
+# comes up healthy in ~9s; evidence probe11-glm47-mmap-kernel-rc7-*.log).
 # Evidence: evidence-20260814-qwen38-smoke/ ; upstream: llama.cpp#19482.
-# Reading weights into RAM instead (--no-mmap) avoids the bug entirely. Cost is
-# a transient host-RAM spike during load, so only large files get the flag.
+# Reading weights into RAM instead (--no-mmap) avoids the bug entirely. The
+# guard is KEPT even though the fix kernel is booted: harmless insurance
+# against the regression returning in a future kernel. Cost is a transient
+# host-RAM spike during load, so only large files get the flag.
 # Threshold 19 GiB: confirmed mmap-working maximum is 18.8 GiB (Dirk Q5_K_XL);
 # confirmed lowest mmap hang is 19.84 GiB (Qwen3.8-27B-Q6_K).
 NOMMAP_THRESHOLD=$((19 * 1024 * 1024 * 1024))
@@ -549,7 +553,7 @@ set_stage "validate"
 #   * native < 64000 -> force 64000 (Hermes compatibility).
 #   * native >= 64000 -> use the model's native context, UNLESS the native
 #     context exceeds the GPU's practical VRAM headroom. On wimpy the R9700 is
-#     32 GB; a 1M-context MoE KV cache cannot load within llama-swap's health
+#     32 GB; a 1M-context MoE KV cache cannot load within llama-hugs's health
 #     window, so we cap at the project's working context (65536). If even that
 #     will not fit, the smoke test announces it and fails with a clear reason.
 #     (This was the exact failure mode for Nero-Tron-30B: registered at native
@@ -678,7 +682,7 @@ fetch_mmproj() {
 fetch_mmproj
 
 # --- Assemble the per-model detail block (name/description/capabilities/metadata)
-# This feeds the documented llama-swap per-model fields (config-schema.json):
+# This feeds the documented llama-hugs per-model fields (config-schema.json):
 #   name, description, capabilities.{in,out,tools,context}, metadata (arbitrary).
 # We record: source repo + URL, file size, HF content sha256 (when advertised),
 # vision capability + the namespaced mmproj filename we assigned, MTP presence
@@ -949,19 +953,19 @@ deploy_live_config(){
     info "automatic deployment skipped: config is not the canonical source ($CONFIG)."
     return 0
   fi
-  [[ -x "$DEPLOY_HELPER" ]] || die "automatic deployment helper missing: $DEPLOY_HELPER (run sudo $SCRIPT_DIR/install-llama-swap-autodeploy.sh)"
+  [[ -x "$DEPLOY_HELPER" ]] || die "automatic deployment helper missing: $DEPLOY_HELPER (run sudo $SCRIPT_DIR/install-llama-hugs-autodeploy.sh)"
   command -v sudo >/dev/null || die "sudo is required for automatic deployment"
   # Pass the resolved repo config to the helper so it never depends on its own
   # hardcoded default (the project moved out of ~/Downloads; ~/$REPO is canonical).
   export SOURCE_CONFIG="$CONFIG"
   set_stage "deploy"
   sudo -n "$DEPLOY_HELPER" || die "automatic deployment failed; live config was not verified"
-  ok "deployed live llama-swap config and verified its API model list"
+  ok "deployed live llama-hugs config and verified its API model list"
 }
 
 set_stage "register"
 (( DO_REGISTER )) || { PIPELINE_OK=1; info "registration skipped. id would be: $NAME"; exit 0; }
-[[ -n "$CONFIG" ]] || die "llama-swap config not found. Set LLAMA_SWAP_CONFIG."
+[[ -n "$CONFIG" ]] || die "llama-hugs config not found. Set LLAMA_SWAP_CONFIG."
 [[ -w "$CONFIG" ]] || die "config is not writable: $CONFIG"
 PRIMARY_ALREADY=0
 SIDECAR="$METADATA_DIR/$NAME.json"

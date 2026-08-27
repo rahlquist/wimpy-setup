@@ -1,4 +1,4 @@
-# CLAUDE.md — wimpy llama.cpp + llama-swap project
+# CLAUDE.md — wimpy llama.cpp + llama-hugs project
 
 Context for Claude Code working in this directory on the host **wimpy**.
 
@@ -19,7 +19,7 @@ As of the 2026-07-23 AM4→AM5 platform swap:
   hostname **wimpy.home.lan** (DNS/DHCP on OPNsense: Unbound + dnsmasq)
 
 A KVM guest **hermesvm01** (192.168.8.249) runs Hermes Agent and reaches this
-host's llama-swap at `http://wimpy.home.lan:8080/v1`.
+host's llama-hugs at `http://wimpy.home.lan:8080/v1`.
 
 ## GPU migration (2026-07-07): CUDA -> ROCm
 
@@ -74,10 +74,10 @@ days / 73 releases behind upstream by the time this was noticed.
   `/usr/local/bin/llama-server` path in configs/units, never a bare
   `llama-server` (PATH resolution to whichever build happens to be first on
   `$PATH` is exactly what broke this project twice now).
-- `llama-swap` (model router) → /usr/local/bin, systemd service `llama-swap`,
+- `llama-hugs` (model router) → /usr/local/bin, systemd service `llama-hugs`,
   listens on **0.0.0.0:8080** so the VM can reach it
 - Models downloaded by `fetch-model.sh` into `~/.cache/llama.cpp/`
-- `llama-swap-config.yaml` → deploys to `/etc/llama-swap/config.yaml`
+- `llama-hugs-config.yaml` → deploys to `/etc/llama-hugs/config.yaml`
 
 ## Files here
 
@@ -86,25 +86,25 @@ days / 73 releases behind upstream by the time this was noticed.
   on the real GPU at full context with the same `--device`/env pin as production
   (refuses to register a model with no GPU pin at all — that's the exact
   silent-CPU-fallback bug the ROCm migration fixed), then registers it into this repo's
-  `llama-swap-config.yaml` (not the deployed copy — deploying is a printed manual step,
-  since llama-swap runs with `-watch-config` so it's just a `cp`, no restart needed).
+  `llama-hugs-config.yaml` (not the deployed copy — deploying is a printed manual step,
+  since llama-hugs runs with `-watch-config` so it's just a `cp`, no restart needed).
   `-y` to skip the confirmation prompt, `--no-smoke`/`--no-register` to split the steps.
-- `llama-swap-config.yaml` — model definitions. EVERY entry uses an explicit
+- `llama-hugs-config.yaml` — model definitions. EVERY entry uses an explicit
   `--model /home/rahlquist/.cache/llama.cpp/<file>.gguf` path (NOT `-hf`).
-- `llama-swap.service` — systemd unit file. Deploy with:
-  `sudo cp llama-swap.service /etc/systemd/system/ && sudo systemctl daemon-reload`
+- `llama-hugs.service` — systemd unit file. Deploy with:
+  `sudo cp llama-hugs.service /etc/systemd/system/ && sudo systemctl daemon-reload`
 - `05-llama-cpp.sh` — **canonical build path** (rewritten 2026-07-08 for
   ROCm/HIP, replacing the earlier pacman-package approach — see "Stop using
   pacman for llama.cpp" above). Builds llama.cpp from source
   (`-DGGML_HIP=ON -DAMDGPU_TARGETS=gfx1201`) to `/usr/local/bin`, version
-  floats to latest master each run. Also installs `llama-swap` and the
+  floats to latest master each run. Also installs `llama-hugs` and the
   systemd unit. Verifies `--list-devices` reports `ROCm0` before declaring
   success; refuses to finish otherwise.
 - other `0N-*.sh` — host setup scripts (already run).
 
 ## System state (as of 2026-07-07, post ROCm migration)
 
-- **llama-swap** is running and enabled (`sudo systemctl status llama-swap`).
+- **llama-hugs** is running and enabled (`sudo systemctl status llama-hugs`).
 - ~~**libggml-cuda fix**: `/etc/ld.so.conf.d/local-lib.conf` contains
   `/usr/local/lib`...~~ **OBSOLETE AND WRONG — do not do this.** This note
   described the old CUDA build-from-source setup. That exact file is what
@@ -133,7 +133,7 @@ If you wrap the install steps in a helper script and run it as `sudo bash wrappe
 
 1. **Back up before modifying any working config.** Timestamped copy first:
    `cp /path/config /path/$(date +%Y%m%d%H%M%S)-config-filename`
-   This applies to /etc/llama-swap/config.yaml and any systemd unit.
+   This applies to /etc/llama-hugs/config.yaml and any systemd unit.
 2. **GPU pinning is intentional (per-GPU).** Two groups, two pins:
    - **R9700 entries** (group `amd-r9700`): `env HIP_VISIBLE_DEVICES=GPU-<uuid>`
      (pin by stable UUID, NOT index — the Raphael iGPU also enumerates as a ROCm
@@ -161,11 +161,11 @@ If you wrap the install steps in a helper script and run it as `sudo bash wrappe
 
 ## Standard bring-up sequence
 
-### On a host that already has llama-server/llama-swap installed
+### On a host that already has llama-server/llama-hugs installed
 
 1. Verify model files exist with sane sizes:
    `ls -la ~/.cache/llama.cpp/*.gguf`
-   Cross-check against the `--model` paths in llama-swap-config.yaml.
+   Cross-check against the `--model` paths in llama-hugs-config.yaml.
 2. Confirm GPU device: `/usr/local/bin/llama-server --list-devices`
    (expect `ROCm0: AMD Radeon AI PRO R9700 ...`; pinning assumes `ROCm0`.)
 3. ~~Fix the CUDA library path...~~ **Do NOT do this.** Do not create
@@ -175,13 +175,13 @@ If you wrap the install steps in a helper script and run it as `sudo bash wrappe
    the *current* build's libs already live natively. If `llama-server`
    reports a missing `libggml-*`/`libllama-*` library, the fix is to re-run
    `05-llama-cpp.sh`, not to add a library search path.
-4. **Install the systemd unit** (skip if `/etc/systemd/system/llama-swap.service` exists):
-   `sudo cp llama-swap.service /etc/systemd/system/ && sudo systemctl daemon-reload`
+4. **Install the systemd unit** (skip if `/etc/systemd/system/llama-hugs.service` exists):
+   `sudo cp llama-hugs.service /etc/systemd/system/ && sudo systemctl daemon-reload`
 5. Back up then install config:
-   `[ -f /etc/llama-swap/config.yaml ] && sudo cp /etc/llama-swap/config.yaml /etc/llama-swap/$(date +%Y%m%d%H%M%S)-config.yaml.bak`
-   `sudo mkdir -p /etc/llama-swap && sudo cp llama-swap-config.yaml /etc/llama-swap/config.yaml`
-6. Start + watch: `sudo systemctl enable --now llama-swap` and
-   `journalctl -u llama-swap -f`
+   `[ -f /etc/llama-hugs/config.yaml ] && sudo cp /etc/llama-hugs/config.yaml /etc/llama-hugs/$(date +%Y%m%d%H%M%S)-config.yaml.bak`
+   `sudo mkdir -p /etc/llama-hugs && sudo cp llama-hugs-config.yaml /etc/llama-hugs/config.yaml`
+6. Start + watch: `sudo systemctl enable --now llama-hugs` and
+   `journalctl -u llama-hugs -f`
 7. Verify routing: `curl http://localhost:8080/v1/models`
 8. Test load (start with the small, certain-to-fit model):
    `curl http://localhost:8080/v1/chat/completions -H "Content-Type: application/json" -d '{"model":"qwen3.5-9b-q4","messages":[{"role":"user","content":"Hello in one sentence."}]}'`

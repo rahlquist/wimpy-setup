@@ -2,6 +2,15 @@
 
 ## ROCm large-model load hang: kernel 7.2.0-rc5 regression, auto --no-mmap workaround (2026-08-14)
 
+**Status update (2026-08-15):** the regression is fixed by kernel
+**7.2.0-rc7-1-cachyos-rc**. A/B verified with the identical failing
+signature: `GLM-4.7-Flash-Uncen-Hrt-NEO-CODE-MAX-imat-D_AU-Q6_K.gguf`
+(23.27 GiB) loads in ~9 s via plain mmap on rc7 and generates correctly
+(evidence: `evidence-20260814-qwen38-smoke/probe11-glm47-mmap-kernel-rc7-*.log`).
+wimpy now runs rc7. The `--no-mmap` guard in fetch-model.sh (below) is
+KEPT deliberately — harmless insurance against a regression reappearing in a
+future kernel; cost is a transient host-RAM spike during large loads only.
+
 **Incident (root cause):** registering
 `Dirk-Qwen3.8-27B-UD-Q6_K_XL.gguf` (24.1 GB, hf://peculiar-ragdoll/Dirk-Qwen3.8-27B-GGUF)
 failed six times at the smoke stage with no error message: the server
@@ -128,7 +137,7 @@ reboot → verify `bridge link` shows lan0 in br0 and br0 has .248.
 
 After the 2026-07-23 AM4→AM5 platform swap (ASRock X870 / Ryzen 7 7700 /
 32GB DDR5), the RTX 5060 Ti was reinstalled next to the R9700. Both GPUs now
-serve inference concurrently behind a single `llama-swap`. Verified end-to-end
+serve inference concurrently behind a single `llama-hugs`. Verified end-to-end
 on the box: two agents hitting a model on each card ran in true parallel, both
 GPUs at ~98% utilization simultaneously.
 
@@ -149,7 +158,7 @@ so `GGML_HIP` and `GGML_CUDA` can't share a binary, and a CUDA install into
   override is wired in as an escape hatch). Verifies `CUDA0` appears, that the
   binary links its own libs from `/opt/llama-cuda/lib` (not `/usr/local`), and
   that the ROCm build still reports `ROCm0` afterward.
-- `llama-swap-config.yaml`: added two groups — `amd-r9700` and `nvidia-5060ti`,
+- `llama-hugs-config.yaml`: added two groups — `amd-r9700` and `nvidia-5060ti`,
   both `swap:true exclusive:false` so one model per GPU stays resident and the
   cards serve in parallel. Every model is assigned to a group (a model in none
   falls into the default exclusive group and breaks concurrency). Added 19
@@ -191,7 +200,7 @@ already 10 days / 73 upstream releases behind by the time this was decided.
   intentionally). Added a hard verification step: refuses to finish unless
   `--list-devices` reports a `ROCm0` device, rather than assuming the build
   worked because it compiled.
-- `llama-swap-config.yaml`: all 22 entries (18 original + 3 legacy + the
+- `llama-hugs-config.yaml`: all 22 entries (18 original + 3 legacy + the
   live-tested `qwen3-coder-30b-a3b`) flipped from `/usr/bin/llama-server`
   (the pacman package path) to `/usr/local/bin/llama-server` (the new
   source-build path). Header comment rewritten to explain the switch and warn
@@ -199,7 +208,7 @@ already 10 days / 73 upstream releases behind by the time this was decided.
 - `fetch-model.sh`: `detect_server()` priority flipped — `/usr/local/bin`
   checked first now (canonical), `/usr/bin` kept only as a fallback in case
   the source build hasn't been done yet on a given run.
-- `llama-swap.service`: added `-watch-config`, matching what's actually
+- `llama-hugs.service`: added `-watch-config`, matching what's actually
   deployed on wimpy (this repo's copy had drifted from production on this
   one flag; unrelated to the ROCm/pacman question, fixed while touching the
   file anyway).
@@ -223,13 +232,13 @@ already 10 days / 73 upstream releases behind by the time this was decided.
 ## Add fetch-model.sh: single-model download + auto-register (2026-07-08)
 
 `download-models.sh` only ever downloaded the fixed curated list — adding one
-new model meant a manual `hf download` plus hand-editing `llama-swap-config.yaml`.
+new model meant a manual `hf download` plus hand-editing `llama-hugs-config.yaml`.
 `fetch-model.sh` replaces that manual step for the common case: paste a HF
 model-card download line, it downloads, smoke-tests on the real GPU at full
 context (same `--device`/env pin as production, refuses to register anything
-without one), and inserts a validated entry into `llama-swap-config.yaml`
+without one), and inserts a validated entry into `llama-hugs-config.yaml`
 (structural + YAML-parse checks before writing, backup + auto-restore on
-failure). Deploying to `/etc/llama-swap/config.yaml` is left as a printed
+failure). Deploying to `/etc/llama-hugs/config.yaml` is left as a printed
 manual step rather than automatic, consistent with how every other config
 change in this project works.
 
@@ -253,7 +262,7 @@ Two independent bugs compounded:
      `/usr/bin/llama-server` resolved `libggml*`/`libllama*` to the stale
      CUDA-only copies instead of the real ROCm ones.
    - Separately, `/usr/local/bin` preceded `/usr/bin` on `$PATH`, and
-     `llama-swap-config.yaml` invoked bare `llama-server` — so it wasn't even
+     `llama-hugs-config.yaml` invoked bare `llama-server` — so it wasn't even
      running the package's binary, it was running the orphaned one.
    - Both problems shared one fix: delete the orphaned `/usr/local` build and
      the shadowing `ld.so.conf.d` entry.
@@ -275,10 +284,10 @@ Two independent bugs compounded:
 
 ### What changed
 - Removed: `/usr/local/bin/llama-*` (orphaned CUDA build, keeping
-  `/usr/local/bin/llama-swap` — the unrelated router binary, not part of the
+  `/usr/local/bin/llama-hugs` — the unrelated router binary, not part of the
   orphaned build), `/usr/local/lib/libggml*`/`libllama*`, stray source clones
   `~/src/llama.cpp` and `~/llama.cpp`, and `/etc/ld.so.conf.d/local-lib.conf`.
-- `llama-swap-config.yaml`: every model's `cmd:` now uses the explicit
+- `llama-hugs-config.yaml`: every model's `cmd:` now uses the explicit
   `/usr/bin/llama-server` path (never bare `llama-server`); every `env:`
   changed from `CUDA_VISIBLE_DEVICES=0` to `HIP_VISIBLE_DEVICES=0`; every
   `cmd:` also gained `--device ROCm0` (`-dev ROCm0` for the 3 legacy
@@ -286,8 +295,8 @@ Two independent bugs compounded:
   instead of a silent CPU fallback — proven by testing a bogus device name
   (refuses to start, exit 1) before setting the real one.
 - Ported 3 legacy model entries (`deepseek-coder-v2-lite-instruct-q4-k-m`,
-  `ornith-1-0-9b-q8-0`, `gemma4-coding-q6-k`) into `llama-swap-config.yaml`
-  from the deployed `/etc/llama-swap/config.yaml` — they existed in
+  `ornith-1-0-9b-q8-0`, `gemma4-coding-q6-k`) into `llama-hugs-config.yaml`
+  from the deployed `/etc/llama-hugs/config.yaml` — they existed in
   production but had drifted out of this repo file at some prior point.
 - Context (65536), `--model` path style, and MoE `--n-cpu-moe` tuning values
   were left untouched — out of scope for this migration.
@@ -365,7 +374,7 @@ Initial bring-up of wimpy as the bare-metal inference + VM host replacing slug.
 ### Inference stack
 - llama.cpp built with `-DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=120` for the
   RTX 5060 Ti; GT 710 excluded via `CUDA_VISIBLE_DEVICES=0`.
-- llama-swap installed, bound to 0.0.0.0:8080 for LAN/VM access.
+- llama-hugs installed, bound to 0.0.0.0:8080 for LAN/VM access.
 - 18 models downloaded and configured. All load cleanly.
 
 ### hermesvm01
@@ -377,7 +386,7 @@ Initial bring-up of wimpy as the bare-metal inference + VM host replacing slug.
 - `detect_os` call restored in 02/04/07 (a sed edit had stripped it).
 - `02-docker.sh`: install compose plugin even when Docker pre-exists; version
   checks made non-fatal.
-- `05-llama-cpp.sh`: corrected llama-swap release asset (linux_amd64 tarball,
+- `05-llama-cpp.sh`: corrected llama-hugs release asset (linux_amd64 tarball,
   not a bare binary); download made non-fatal.
 - `08-networking.sh`: NET_MANAGER detection rewritten (if/elif, prefer
   NetworkManager); firewall logic creates the nftables table/chain if absent;
@@ -388,8 +397,8 @@ Initial bring-up of wimpy as the bare-metal inference + VM host replacing slug.
   filenames for Granite, Llama-3.2-3B, Gemma-4-12B, and the Jackrong distill;
   added Q6_K and Q8_0 of the Qwen3.5-9B reasoning distill.
 - **phi-4 changed Q8_0 → Q4_K_M** — Q8_0 (~15GB) OOMed at 64K on 16GB.
-  Synced in both `download-models.sh` and `llama-swap-config.yaml`.
-- llama-swap config converted to a single consistent method: explicit `--model`
+  Synced in both `download-models.sh` and `llama-hugs-config.yaml`.
+- llama-hugs config converted to a single consistent method: explicit `--model`
   paths everywhere (was a mix of `-hf` and `--model`).
 
 ### Repository hygiene

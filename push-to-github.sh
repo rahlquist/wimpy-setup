@@ -49,7 +49,7 @@ read -r -p "Proceed with commit and push to a PRIVATE repo '$REPO_NAME'? [y/N] "
 
 git commit -m "wimpy inference host + hermesvm01 setup
 
-Bare-metal llama.cpp/llama-swap inference host (CachyOS, RTX 5060 Ti) with
+Bare-metal llama.cpp/llama-hugs inference host (CachyOS, RTX 5060 Ti) with
 bridged KVM guest running Hermes Agent. 18 models, all loading at 64K context.
 See CHANGELOG.md for details." || echo "(nothing new to commit)"
 

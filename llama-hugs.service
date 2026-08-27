@@ -1,0 +1,15 @@
+[Unit]
+Description=llama-hugs model router (wimpy)
+After=network.target
+
+[Service]
+Type=simple
+User=rahlquist
+ExecStart=/usr/local/bin/llama-hugs --config /etc/llama-hugs/config.yaml -watch-config
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

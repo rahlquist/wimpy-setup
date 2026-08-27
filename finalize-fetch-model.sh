@@ -12,7 +12,7 @@
 #
 # It does NOT:
 #   - delete any files
-#   - modify llama-swap-config.yaml or any committed file beyond `git add`
+#   - modify llama-hugs-config.yaml or any committed file beyond `git add`
 #   - run `sudo`
 #   - push
 #
@@ -59,7 +59,7 @@ git add \
   tools/gguf_metadata.py \
   tools/cuda_fit.py \
   tools/register_model_variant.py \
-  llama-swap-config.yaml \
+  llama-hugs-config.yaml \
   model-inventory.html \
   model-metadata/muse-glimmer-30b-ud-q4-k-xl.json \
   model-metadata/qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-iq3-m.json \
@@ -77,7 +77,7 @@ echo
 echo "== deployment + live verification (run manually with sudo) =="
 cat <<'DEPLOYBLOCK'
 cd /home/rahlquist/wimpy-setup
-sudo /usr/local/sbin/llama-swap-deploy
+sudo /usr/local/sbin/llama-hugs-deploy
 
 curl -fsS http://127.0.0.1:8080/v1/models \
   | python3 -c 'import json,sys; ids={x["id"] for x in json.load(sys.stdin)["data"]}; print("\n".join(sorted(x for x in ids if any(k in x for k in ("muse-glimmer","fable-fus")))))'

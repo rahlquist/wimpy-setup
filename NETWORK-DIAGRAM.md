@@ -28,7 +28,7 @@
  │   └───────────────────────────┘            └───────────────┬───────────────┘  │
  │                                                            │ loads via        │
  │   ┌───────────────────────────┐            ┌───────────────▼───────────────┐  │
- │   │ libvirt host-bridge       │            │ llama-swap · port 8080        │  │
+ │   │ libvirt host-bridge       │            │ llama-hugs · port 8080        │  │
  │   │ attaches to br0 — no NAT  │            │ router · 2 GPU groups         │  │
  │   │ VMs join the LAN directly │            │                               │  │
  │   │ ┌───────────────────────┐ │            │ qwen2.5-coder-14b             │  │
@@ -57,7 +57,7 @@
 
 ## Hosted models
 
-llama-swap routes on demand across two GPU groups: 26 models on the R9700
+llama-hugs routes on demand across two GPU groups: 26 models on the R9700
 (ROCm) and 19 `<16GB` models on the RTX 5060 Ti (CUDA). Within a group one
 model is resident at a time; because the groups are `exclusive: false`, one
 model per GPU can be resident **at once**, so two agents run in parallel — one
@@ -92,10 +92,10 @@ on the GPU (`--n-cpu-moe 0`); the table below lists the model families.
 - **Inference is two layers.** `llama.cpp` is the engine — here it's **two
   builds**: a ROCm/HIP build (`/usr/local/bin/llama-server`, gfx1201) for the
   R9700 and a CUDA build (`/opt/llama-cuda/bin/llama-server`, sm_120) for the
-  RTX 5060 Ti. A single `llama-swap` sits in front of both, binds port 8080 on
+  RTX 5060 Ti. A single `llama-hugs` sits in front of both, binds port 8080 on
   all interfaces, and loads/unloads models on demand (per-GPU groups let one
   model on each card be resident at once). Hermes and any LAN client talk only
-  to llama-swap.
+  to llama-hugs.
 
 - **VMs are first-class LAN peers.** libvirt's `host-bridge` network attaches
   guest vNICs straight onto `br0`. hermesvm01 gets its address from its own
@@ -103,7 +103,7 @@ on the GPU (`--n-cpu-moe 0`); the table below lists the model families.
   is just another host on the LAN.
 
 - **Inference path.** Hermes Agent inside hermesvm01 points `OPENAI_BASE_URL`
-  at `http://wimpy.home.lan:8080/v1`. Traffic flows VM → br0 → llama-swap on the
+  at `http://wimpy.home.lan:8080/v1`. Traffic flows VM → br0 → llama-hugs on the
   host, a single L2 hop.
 
 - **DNS.** Unbound resolves `wimpy.home.lan` and `hermesvm01.home.lan` (plus

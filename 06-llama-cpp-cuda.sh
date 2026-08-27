@@ -17,11 +17,11 @@
 #     /usr/local/bin/llama-server        -> R9700  (ROCm0), built by 05-
 #     /opt/llama-cuda/bin/llama-server   -> 5060 Ti (CUDA0), built by this script
 #
-#   This does NOT install llama-swap, a config, or a systemd unit — 05- already
-#   did that and there is ONE llama-swap for both GPUs. To use the 5060 Ti, add
-#   model entries to llama-swap-config.yaml whose cmd points at
+#   This does NOT install llama-hugs, a config, or a systemd unit — 05- already
+#   did that and there is ONE llama-hugs for both GPUs. To use the 5060 Ti, add
+#   model entries to llama-hugs-config.yaml whose cmd points at
 #   /opt/llama-cuda/bin/llama-server with env: ["CUDA_VISIBLE_DEVICES=0"], in a
-#   different llama-swap group from the R9700 models so both can stay resident.
+#   different llama-hugs group from the R9700 models so both can stay resident.
 #
 # Version floats to the tip of master (shares the ~/src/llama.cpp checkout with
 # 05-; git pull --ff-only). Re-run the GPU validation after any rebuild.
@@ -159,10 +159,10 @@ info "  CUDA llama-server : $("$CUDA_BIN" --version 2>&1 | head -1)"
 info "  CUDA device       : $("$CUDA_BIN" --list-devices 2>&1 | grep '^ *CUDA0')"
 info "  Binary            : ${CUDA_BIN}"
 info ""
-info "  This build is NOT wired into llama-swap yet. To use the 5060 Ti, add"
-info "  model entries to llama-swap-config.yaml with:"
+info "  This build is NOT wired into llama-hugs yet. To use the 5060 Ti, add"
+info "  model entries to llama-hugs-config.yaml with:"
 info "    cmd: ${CUDA_BIN} ... --device CUDA0 ..."
 info "    env: [\"CUDA_VISIBLE_DEVICES=0\"]"
-info "  Put them in a different llama-swap group from the R9700 models so both"
+info "  Put them in a different llama-hugs group from the R9700 models so both"
 info "  GPUs can stay resident and serve concurrently. Then deploy the config"
-info "  (cp to /etc/llama-swap/config.yaml; -watch-config reloads, no restart)."
+info "  (cp to /etc/llama-hugs/config.yaml; -watch-config reloads, no restart)."

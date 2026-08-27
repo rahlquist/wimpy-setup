@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the freshly built llama.cpp backends and deploy Muse-Glimmer to llama-swap.
+# Install the freshly built llama.cpp backends and deploy Muse-Glimmer to llama-hugs.
 # Run from wimpy as the normal user: sudo bash ./install-muse-glimmer.sh
 set -euo pipefail
 
@@ -9,8 +9,8 @@ ROCM_BUILD="$SRC_DIR/build"
 CUDA_BUILD="$SRC_DIR/build-cuda"
 ROCM_PREFIX="/usr/local"
 CUDA_PREFIX="/opt/llama-cuda"
-MODEL_CONFIG="$REPO_DIR/llama-swap-config.yaml"
-LIVE_CONFIG="/etc/llama-swap/config.yaml"
+MODEL_CONFIG="$REPO_DIR/llama-hugs-config.yaml"
+LIVE_CONFIG="/etc/llama-hugs/config.yaml"
 MODEL_ID="muse-glimmer-30b-ud-q6-k-xl"
 
 log() { printf '[..] %s\n' "$*"; }
@@ -21,7 +21,7 @@ die() { printf '[ERR] %s\n' "$*" >&2; exit 1; }
 [[ -f "$ROCM_BUILD/cmake_install.cmake" ]] || die "ROCm build is missing: $ROCM_BUILD"
 [[ -f "$CUDA_BUILD/cmake_install.cmake" ]] || die "CUDA build is missing: $CUDA_BUILD"
 [[ -f "$MODEL_CONFIG" ]] || die "model config is missing: $MODEL_CONFIG"
-[[ -f "$LIVE_CONFIG" ]] || die "live llama-swap config is missing: $LIVE_CONFIG"
+[[ -f "$LIVE_CONFIG" ]] || die "live llama-hugs config is missing: $LIVE_CONFIG"
 
 grep -q 'muse-glimmer-30b-ud-q6-k-xl' "$MODEL_CONFIG" || die "Muse-Glimmer entry is missing from $MODEL_CONFIG"
 
@@ -45,14 +45,14 @@ grep -a -q 'muse-glimmer' "$ROCM_LIB" || die "installed ROCm libllama has no Mus
 ok "installed ROCm build contains Muse-Glimmer support"
 
 backup="${LIVE_CONFIG}.bak.$(date +%Y%m%d%H%M%S)"
-log "Backing up live llama-swap config to $backup"
+log "Backing up live llama-hugs config to $backup"
 cp -a "$LIVE_CONFIG" "$backup"
 install -o root -g root -m 0644 "$MODEL_CONFIG" "$LIVE_CONFIG"
 ok "deployed $MODEL_ID config to $LIVE_CONFIG"
 
-if systemctl is-active --quiet llama-swap; then
-  systemctl kill -s HUP llama-swap 2>/dev/null || true
-  log "llama-swap is active; waiting for config reload"
+if systemctl is-active --quiet llama-hugs; then
+  systemctl kill -s HUP llama-hugs 2>/dev/null || true
+  log "llama-hugs is active; waiting for config reload"
 fi
 
 printf '\n[OK] Installation and deployment complete.\n'

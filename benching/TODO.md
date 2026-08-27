@@ -19,7 +19,7 @@ automatically by the nightly timer), so both GPUs' results are always visible
 without a manual commit.
 
 **Open design questions (decide before building):**
-- Reachability: serve off-box like llama-swap (port 8080, reachable from
+- Reachability: serve off-box like llama-hugs (port 8080, reachable from
   hermesvm01 over br0) or local-only on wimpy for now?
 - Existing web stack on wimpy to slot into (nginx/caddy), or a standalone
   minimal static server on its own port (e.g. 8081)?

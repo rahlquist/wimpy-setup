@@ -20,6 +20,11 @@ import json
 import urllib.request
 import urllib.parse
 import urllib.error
+import time
+import re
+
+MAX_RETRIES = int(os.environ.get("MMPROJ_MAX_RETRIES", "3"))
+CHUNK_SIZE = 1 << 20
 
 HF_TOKEN = os.environ.get("HF_TOKEN", "")
 MODELS_DIR = os.environ.get("MODELS_DIR", os.path.expanduser("~/.cache/llama.cpp"))
@@ -40,9 +45,27 @@ def api_get(url):
 
 
 def tree(repo_id):
-    """List top-level file tree of a repo (non-recursive)."""
-    url = f"{API_BASE}/models/{urllib.parse.quote(repo_id, safe='/')}/tree/main"
-    return api_get(url)
+    """List the complete repository tree, following HF pagination."""
+    url = (
+        f"{API_BASE}/models/{urllib.parse.quote(repo_id, safe='/')}/tree/main"
+        "?recursive=true&expand=true&limit=100"
+    )
+    items = []
+    while url:
+        req = urllib.request.Request(url, headers=auth_headers())
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            page = json.load(resp)
+            link = resp.headers.get("Link", "")
+        if not isinstance(page, list):
+            raise ValueError("HF repo tree response was not a list")
+        items.extend(page)
+        next_url = None
+        for match in re.finditer(r'<([^>]+)>;\s*rel="([^"]+)"', link):
+            if match.group(2) == "next":
+                next_url = match.group(1)
+                break
+        url = next_url
+    return items
 
 
 def pick_mmproj(tree_items):
@@ -57,27 +80,89 @@ def pick_mmproj(tree_items):
             cands.append((path, size))
     if not cands:
         return None, None
-    # prefer f16, then bf16, then smallest by size
+    # Prefer exact BF16/F16 tokens. Check BF16 first because the substring
+    # "f16" is also present in "bf16".
     def key(c):
         n = c[0].lower()
-        if "f16" in n:
+        if re.search(r"(?:^|[-_.])bf16(?:[-_.]|$)", n):
             return (0, -c[1])
-        if "bf16" in n:
+        if re.search(r"(?:^|[-_.])f16(?:[-_.]|$)", n):
             return (1, -c[1])
+        if "bf16" in n:
+            return (0, -c[1])
+        if "f16" in n:
+            return (1, -c[1])
+        # If no precision token is present, prefer the largest candidate;
+        # projector files are generally not useful when truncated or tiny.
         return (2, -c[1])
     cands.sort(key=key)
     return cands[0]
 
 
-def download(repo_id, remote_name, dest):
+def download_once(repo_id, remote_name, dest):
     url = f"https://huggingface.co/{urllib.parse.quote(repo_id, safe='/')}/resolve/main/{urllib.parse.quote(remote_name, safe='/')}"
     req = urllib.request.Request(url, headers=auth_headers())
-    with urllib.request.urlopen(req, timeout=600) as resp, open(dest, "wb") as out:
+    part = f"{dest}.part"
+    with urllib.request.urlopen(req, timeout=600) as resp, open(part, "wb") as out:
+        total = int(resp.headers.get("Content-Length", "0") or 0)
+        downloaded = 0
+        started = time.monotonic()
+        last_report = 0.0
+        print(
+            f"[..] projector download started: {remote_name}"
+            + (f" ({total / (1024**3):.2f} GiB)" if total else " (size unknown)"),
+            file=sys.stderr,
+            flush=True,
+        )
         while True:
-            chunk = resp.read(1 << 20)
+            chunk = resp.read(CHUNK_SIZE)
             if not chunk:
                 break
             out.write(chunk)
+            downloaded += len(chunk)
+            now = time.monotonic()
+            if now - last_report >= 1.0:
+                if total:
+                    percent = downloaded * 100 / total
+                    detail = f"{percent:6.2f}% {downloaded / (1024**2):.0f}/{total / (1024**2):.0f} MiB"
+                else:
+                    detail = f"{downloaded / (1024**2):.0f} MiB"
+                elapsed = max(now - started, 0.001)
+                speed = downloaded / elapsed / (1024**2)
+                print(f"[..] projector download: {detail} at {speed:.1f} MiB/s", file=sys.stderr, flush=True)
+                last_report = now
+        out.flush()
+        os.fsync(out.fileno())
+    if total and downloaded != total:
+        raise IOError(f"short projector download: received {downloaded} of {total} bytes")
+    if downloaded == 0:
+        raise IOError("projector download returned an empty file")
+    os.replace(part, dest)
+    print(
+        f"[OK] projector download complete: {dest} ({downloaded / (1024**2):.0f} MiB)",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def download(repo_id, remote_name, dest):
+    part = f"{dest}.part"
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            if os.path.exists(part):
+                os.unlink(part)
+            print(f"[..] projector download attempt {attempt}/{MAX_RETRIES}", file=sys.stderr, flush=True)
+            download_once(repo_id, remote_name, dest)
+            return
+        except Exception as exc:
+            if os.path.exists(part):
+                os.unlink(part)
+            print(f"[!!] projector download attempt {attempt} failed: {exc}", file=sys.stderr, flush=True)
+            if attempt == MAX_RETRIES:
+                raise
+            delay = attempt
+            print(f"[..] retrying projector download in {delay}s", file=sys.stderr, flush=True)
+            time.sleep(delay)
 
 
 def main():
@@ -95,12 +180,10 @@ def main():
     stem = base_file[: -len(".gguf")]
     dest = os.path.join(MODELS_DIR, f"{stem}.mmproj.gguf")
 
-    # 1) already present? short-circuit.
-    if os.path.exists(dest):
-        print(dest)
-        return 0
-
-    # 2) repo tree
+    # 1) repo tree. This is intentionally checked even when a destination
+    # exists, so a partial/stale projector cannot permanently short-circuit a
+    # later fetch.
+    print(f"[..] projector lookup: querying HF repo tree for {repo_id}", file=sys.stderr, flush=True)
     try:
         items = tree(repo_id)
     except urllib.error.HTTPError as e:
@@ -129,6 +212,22 @@ def main():
         # projector needed). Return empty so caller leaves MMPROJ_PATH unset.
         print("", end="")
         return 0
+
+    print(f"[..] projector candidate: {chosen_name}", file=sys.stderr, flush=True)
+
+    # 2) reuse only a complete projector whose size matches HF metadata.
+    if os.path.exists(dest):
+        actual_size = os.path.getsize(dest)
+        if _chosen_size and actual_size == _chosen_size:
+            print(f"[OK] projector already present: {dest} ({actual_size / (1024**2):.0f} MiB)", file=sys.stderr, flush=True)
+            print(dest)
+            return 0
+        print(
+            f"[!!] existing projector size mismatch: {actual_size} bytes; expected {_chosen_size} — redownloading",
+            file=sys.stderr,
+            flush=True,
+        )
+        os.unlink(dest)
 
     # 3) download
     try:

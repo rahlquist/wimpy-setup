@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# remove-model.sh — remove a model from the wimpy llama-swap fleet.
+# remove-model.sh — remove a model from the wimpy llama-hugs fleet.
 #
 # What it does (all reversible except --purge, which deletes files):
 #   1. Backs up the repo config AND the live config (hard rule).
-#   2. Removes the model's entry from llama-swap-config.yaml (models: map),
+#   2. Removes the model's entry from llama-hugs-config.yaml (models: map),
 #      AND any group membership (e.g. amd-r9700 / nvidia-5060ti) so the next
 #      reload does not fail with "no model config for <id>" (the ovisocr2 trap).
-#   3. Deploys the edited repo config to /etc/llama-swap/config.yaml
-#      (llama-swap hot-reloads via -watch-config; no restart).
+#   3. Deploys the edited repo config to /etc/llama-hugs/config.yaml
+#      (llama-hugs hot-reloads via -watch-config; no restart).
 #   4. Verifies the model is gone from the live API and the reload was clean.
 #   5. (--purge) deletes the GGUF from ~/.cache/llama.cpp and its sidecar.
 #
@@ -24,8 +24,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_CFG="$SCRIPT_DIR/llama-swap-config.yaml"
-LIVE_CFG="/etc/llama-swap/config.yaml"
+REPO_CFG="$SCRIPT_DIR/llama-hugs-config.yaml"
+LIVE_CFG="/etc/llama-hugs/config.yaml"
 CACHE_DIR="${GGUF_CACHE:-$HOME/.cache/llama.cpp}"
 METADATA_DIR="$SCRIPT_DIR/model-metadata"
 TS="$(date +%Y%m%d%H%M%S)"
@@ -147,10 +147,10 @@ if curl -s --max-time 8 http://127.0.0.1:8080/v1/models >/dev/null 2>&1; then
   else
     err "verified FAILED: '$MODEL_ID' still in live API after reload."
   fi
-  if sudo journalctl -u llama-swap --since -30s 2>/dev/null | grep -iE 'error|fail|no model config' | grep -viE 'reloading|reloaded' >/dev/null; then
-    err "llama-swap reload reported errors (see: sudo journalctl -u llama-swap)"
+  if sudo journalctl -u llama-hugs --since -30s 2>/dev/null | grep -iE 'error|fail|no model config' | grep -viE 'reloading|reloaded' >/dev/null; then
+    err "llama-hugs reload reported errors (see: sudo journalctl -u llama-hugs)"
   else
-    ok "llama-swap reload clean."
+    ok "llama-hugs reload clean."
   fi
 else
   warn "live API not reachable; could not verify (config still deployed)."

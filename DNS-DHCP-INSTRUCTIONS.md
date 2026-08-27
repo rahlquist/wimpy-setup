@@ -104,7 +104,7 @@ ping hermesvm01.home.lan
 From inside hermesvm01:
 ```bash
 ping wimpy.home.lan                              # host reachable
-curl http://wimpy.home.lan:8080/v1/models        # llama-swap reachable
+curl http://wimpy.home.lan:8080/v1/models        # llama-hugs reachable
 ```
 
 ---

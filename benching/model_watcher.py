@@ -99,7 +99,7 @@ def scan_and_register(models_dir, db_path):
 
 
 def model_gpu_classes(config_path):
-    """Map each GGUF path to its explicit llama-swap GPU group(s).
+    """Map each GGUF path to its explicit llama-hugs GPU group(s).
 
     The GGUF is backend-neutral; aliases/groups are the source of truth.
     A file may intentionally appear in both groups and then gets benchmarked
@@ -210,7 +210,7 @@ def main():
     ap.add_argument("--db", required=True)
     ap.add_argument("--csv", required=True)
     ap.add_argument("--config", required=True,
-                    help="llama-swap config providing explicit model GPU groups")
+                    help="llama-hugs config providing explicit model GPU groups")
     ap.add_argument("--bench-bin", default="llama-bench")
     ap.add_argument("--gpu-class", choices=("rocm", "cuda"), required=True)
     ap.add_argument("--device", required=True)

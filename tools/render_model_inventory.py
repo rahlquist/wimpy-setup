@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a static model inventory from llama-swap config and local sidecars."""
+"""Generate a static model inventory from llama-hugs config and local sidecars."""
 from __future__ import annotations
 
 import datetime as dt
@@ -114,8 +114,8 @@ def main() -> int:
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wimpy model inventory</title>
 <style>body{{font:15px system-ui,sans-serif;margin:2rem;color:#172033;background:#f7fbff}}h1{{color:#143f6b}}table{{border-collapse:collapse;width:100%;background:#fff}}th,td{{text-align:left;vertical-align:top;border:1px solid #b9cde0;padding:.6rem}}th{{background:#dceeff}}code{{white-space:pre-wrap;word-break:break-word}}small{{color:#4a5d70}}</style>
-</head><body><h1>Wimpy llama.cpp model inventory</h1><p><small>Generated from <code>llama-swap-config.yaml</code>. Existing entries without a local metadata sidecar use this inventory's initial generation date.</small></p>
-<table><thead><tr><th>llama-swap alias</th><th>Filename</th><th>Added (UTC)</th><th>Architecture</th><th>Native context</th><th>Description</th><th>Custom llama.cpp parameters</th></tr></thead><tbody>
+</head><body><h1>Wimpy llama.cpp model inventory</h1><p><small>Generated from <code>llama-hugs-config.yaml</code>. Existing entries without a local metadata sidecar use this inventory's initial generation date.</small></p>
+<table><thead><tr><th>llama-hugs alias</th><th>Filename</th><th>Added (UTC)</th><th>Architecture</th><th>Native context</th><th>Description</th><th>Custom llama.cpp parameters</th></tr></thead><tbody>
 {body}
 </tbody></table></body></html>
 """
