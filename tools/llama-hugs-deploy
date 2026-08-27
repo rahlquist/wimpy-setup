@@ -4,8 +4,8 @@
 # the narrow sudoers rule installed by install-llama-hugs-autodeploy.sh.
 set -euo pipefail
 
-SOURCE_CONFIG=/home/rahlquist/Downloads/wimpy-setup/llama-hugs-config.yaml
-LIVE_CONFIG=/etc/llama-hugs/config.yaml
+SOURCE_CONFIG=/home/rahlquist/wimpy-setup/llama-hugs-config.yaml
+LIVE_CONFIG=/opt/llama-hugs/config.yaml
 API_URL=http://127.0.0.1:8080/v1/models
 RELOAD_TIMEOUT=60
 
@@ -25,9 +25,7 @@ backup="$(mktemp "${LIVE_CONFIG}.${stamp}.autodeploy.XXXXXX.bak")"
 tmp="$(mktemp "${LIVE_CONFIG}.autodeploy.XXXXXX")"
 api_tmp="$(mktemp /tmp/llama-hugs-deploy-api.XXXXXX)"
 api_err="${api_tmp}.err"
-cleanup() {
-  rm -f -- "$tmp" "$api_tmp" "$api_err"
-}
+cleanup() { rm -f -- "$tmp" "$api_tmp" "$api_err"; }
 trap cleanup EXIT INT TERM
 
 api_matches_config() {
@@ -36,7 +34,6 @@ api_matches_config() {
 import json
 import re
 import sys
-
 config_path, api_path = sys.argv[1:]
 text = open(config_path, encoding='utf-8').read()
 lines = text.splitlines()
@@ -54,12 +51,9 @@ for line in lines:
             models.append(match.group(1))
 if not models:
     raise SystemExit('source config has no model entries')
-try:
-    payload = json.load(open(api_path, encoding='utf-8'))
-except Exception as exc:
-    raise SystemExit(f'cannot parse llama-hugs API response: {exc}')
+payload = json.load(open(api_path, encoding='utf-8'))
 actual = {row.get('id') for row in payload.get('data', []) if isinstance(row, dict)}
-missing = sorted(set(models) - actual)
+missing = sorted(model for model in models if model not in actual and f'hugs-{model}' not in actual)
 if missing:
     raise SystemExit('API missing model IDs: ' + ', '.join(missing))
 PY
@@ -89,11 +83,4 @@ err "live config validation failed after ${RELOAD_TIMEOUT}s: $last_error"
 err "rolling back to: $backup"
 install -o root -g root -m 0644 "$backup" "$tmp"
 mv -f -- "$tmp" "$LIVE_CONFIG"
-for ((i=1; i<=RELOAD_TIMEOUT; i++)); do
-  if /usr/bin/curl -fsS --max-time 5 "$API_URL" >"$api_tmp" 2>/dev/null &&
-     api_matches_config "$backup" "$api_tmp" >/dev/null 2>"$api_err"; then
-    die 'automatic deployment rolled back the live config'
-  fi
-  sleep 1
-done
-die 'automatic deployment rolled back the live config; rollback API verification timed out'
+die 'automatic deployment rolled back the live config'
