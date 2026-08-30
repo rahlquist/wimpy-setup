@@ -85,29 +85,40 @@ run_pass "nvidia-5060ti-cuda" "$CUDA_BIN" "/tmp/model_watcher.cuda.lock" || exit
 echo "[$(date -u +%FT%TZ)] === regenerating report ===" | tee -a "$LOG"
 "$PY" "$REPORTER" --db "$DB" --all --html --out "$BENCH_DIR/bench_results.html" 2>&1 | tee -a "$LOG"
 
+# Mirror the report into docs/ so GitHub Pages renders it at
+# https://rahlquist.github.io/wimpy-setup/bench_results.html (the repo's
+# Pages source is the /docs directory, already enabled). The standalone
+# benching/bench_results.html stays the canonical working copy; docs/ is a
+# render copy. Pages serves /docs, so this is what visitors actually see.
+PAGES_REL="docs/bench_results.html"
+echo "[$(date -u +%FT%TZ)] === copying report to $PAGES_REL for GitHub Pages ===" | tee -a "$LOG"
+install -Dm644 "$BENCH_DIR/bench_results.html" "$REPO/$PAGES_REL" 2>&1 | tee -a "$LOG"
+
 # --- Commit + push the nightly results to origin/main ----------------------
-# Only bench_results.html is committed (bench.db / bench_summary.csv /
-# watcher.log are git-ignored generated data). Runs as the repo owner so the
-# push uses rahlquist's registered SSH deploy key (the systemd service runs as
-# root, which has no GitHub credentials of its own). Never force-push: if the
+# Both bench_results.html (canonical) and docs/bench_results.html (Pages
+# render copy) are committed; bench.db / bench_summary.csv / watcher.log are
+# git-ignored generated data. Runs as the repo owner so the push uses
+# rahlquist's registered SSH deploy key (the systemd service runs as root,
+# which has no GitHub credentials of its own). Never force-push: if the
 # remote has commits we don't, merge them first so nothing is discarded.
 echo "[$(date -u +%FT%TZ)] === syncing results to origin/main ===" | tee -a "$LOG"
 REPO="/home/rahlquist/wimpy-setup"
-# Path is repo-relative (run-nightly-bench.sh lives in <repo>/benching/).
+# Paths are repo-relative (run-nightly-bench.sh lives in <repo>/benching/).
 REPORT_REL="benching/bench_results.html"
 GIT_OWNER="rahlquist"
 GIT_ENV="GIT_SSH_COMMAND='ssh -i /home/rahlquist/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new' HOME=/home/rahlquist"
 sync_results() {
   local rc
-  # Stage only the regenerated report. Untracked/source files stay out of the
-  # nightly commit on purpose. Use the repo-relative path so the pathspec
-  # actually matches (a bare 'bench_results.html' from the repo root matches
-  # nothing and silently commits nothing).
+  # Stage only the regenerated report + its Pages copy. Untracked/source files
+  # stay out of the nightly commit on purpose. Use repo-relative paths so the
+  # pathspec actually matches (a bare 'bench_results.html' from the repo root
+  # matches nothing and silently commits nothing).
   sudo -u "$GIT_OWNER" env $GIT_ENV \
-    git -C "$REPO" add -A -- "$REPORT_REL" 2>&1 | tee -a "$LOG"
-  # Nothing to commit? exit quietly (e.g. report was byte-identical).
+    git -C "$REPO" add -A -- "$REPORT_REL" "$PAGES_REL" 2>&1 | tee -a "$LOG"
+  # Nothing to commit? exit quietly (e.g. report was byte-identical on both
+  # copies). Check both the canonical and Pages paths.
   if sudo -u "$GIT_OWNER" env $GIT_ENV \
-       git -C "$REPO" diff --cached --quiet -- "$REPORT_REL"; then
+       git -C "$REPO" diff --cached --quiet -- "$REPORT_REL" "$PAGES_REL"; then
     echo "[$(date -u +%FT%TZ)] no report changes to commit, skipping push" | tee -a "$LOG"
     return 0
   fi

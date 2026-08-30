@@ -287,6 +287,21 @@ hf auth login        # paste a token from https://huggingface.co/settings/tokens
 Do NOT commit token files to the repo. `.gitignore` blocks `*token*` and `*.env`
 for this reason. The token is stored by the CLI in `~/.cache/huggingface/`.
 
+## Benchmarking
+
+A nightly systemd timer (`benching/llama-bench-nightly.timer`, 3:00 AM ET)
+sweeps every model on both GPUs (R9700 ROCm + RTX 5060 Ti CUDA) via
+`benching/run-nightly-bench.sh` and regenerates `benching/bench_results.html`.
+
+- **Rendered results:** <https://rahlquist.github.io/wimpy-setup/bench_results.html>
+  (GitHub Pages copy of the report, refreshed each nightly run).
+- **Canonical report file:** [`benching/bench_results.html`](benching/bench_results.html)
+  — raw source; GitHub shows it as HTML text, so use the Pages link above to
+  view it rendered.
+- Raw data lives in `benching/bench.db` (SQLite, git-ignored) and
+  `benching/bench_summary.csv` (git-ignored); the sweep script only commits
+  the two HTML copies.
+
 ## Dual-GPU (R9700 + RTX 5060 Ti)
 
 Both GPUs serve inference at the same time, behind one `llama-hugs`:
