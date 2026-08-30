@@ -84,4 +84,67 @@ run_pass "nvidia-5060ti-cuda" "$CUDA_BIN" "/tmp/model_watcher.cuda.lock" || exit
 # Regenerate the HTML report from whatever is now in the DB.
 echo "[$(date -u +%FT%TZ)] === regenerating report ===" | tee -a "$LOG"
 "$PY" "$REPORTER" --db "$DB" --all --html --out "$BENCH_DIR/bench_results.html" 2>&1 | tee -a "$LOG"
+
+# --- Commit + push the nightly results to origin/main ----------------------
+# Only bench_results.html is committed (bench.db / bench_summary.csv /
+# watcher.log are git-ignored generated data). Runs as the repo owner so the
+# push uses rahlquist's registered SSH deploy key (the systemd service runs as
+# root, which has no GitHub credentials of its own). Never force-push: if the
+# remote has commits we don't, merge them first so nothing is discarded.
+echo "[$(date -u +%FT%TZ)] === syncing results to origin/main ===" | tee -a "$LOG"
+REPO="/home/rahlquist/wimpy-setup"
+# Path is repo-relative (run-nightly-bench.sh lives in <repo>/benching/).
+REPORT_REL="benching/bench_results.html"
+GIT_OWNER="rahlquist"
+GIT_ENV="GIT_SSH_COMMAND='ssh -i /home/rahlquist/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new' HOME=/home/rahlquist"
+sync_results() {
+  local rc
+  # Stage only the regenerated report. Untracked/source files stay out of the
+  # nightly commit on purpose. Use the repo-relative path so the pathspec
+  # actually matches (a bare 'bench_results.html' from the repo root matches
+  # nothing and silently commits nothing).
+  sudo -u "$GIT_OWNER" env $GIT_ENV \
+    git -C "$REPO" add -A -- "$REPORT_REL" 2>&1 | tee -a "$LOG"
+  # Nothing to commit? exit quietly (e.g. report was byte-identical).
+  if sudo -u "$GIT_OWNER" env $GIT_ENV \
+       git -C "$REPO" diff --cached --quiet -- "$REPORT_REL"; then
+    echo "[$(date -u +%FT%TZ)] no report changes to commit, skipping push" | tee -a "$LOG"
+    return 0
+  fi
+  sudo -u "$GIT_OWNER" env $GIT_ENV \
+    git -C "$REPO" commit -m "benching: nightly sweep results ($(date -u +%F))" 2>&1 | tee -a "$LOG"
+  rc=${PIPESTATUS[0]}
+  if [[ $rc -ne 0 ]]; then
+    echo "[$(date -u +%FT%TZ)] commit failed (rc=$rc), skipping push" | tee -a "$LOG"
+    return $rc
+  fi
+  # Fetch and check for divergence before pushing. A non-fast-forward remote
+  # means another source added commits; merge them (never --force) so the
+  # nightly commit rides on top instead of clobbering remote history.
+  sudo -u "$GIT_OWNER" env $GIT_ENV \
+    git -C "$REPO" fetch origin main 2>&1 | tee -a "$LOG"
+  local local_rev remote_rev base_rev
+  local_rev=$(sudo -u "$GIT_OWNER" env $GIT_ENV git -C "$REPO" rev-parse HEAD)
+  remote_rev=$(sudo -u "$GIT_OWNER" env $GIT_ENV git -C "$REPO" rev-parse origin/main)
+  if [[ "$local_rev" != "$remote_rev" ]]; then
+    base_rev=$(sudo -u "$GIT_OWNER" env $GIT_ENV git -C "$REPO" merge-base HEAD origin/main)
+    if [[ "$base_rev" != "$remote_rev" ]]; then
+      echo "[$(date -u +%FT%TZ)] remote has newer commits — merging origin/main (no force-push)" | tee -a "$LOG"
+      sudo -u "$GIT_OWNER" env $GIT_ENV \
+        git -C "$REPO" merge --no-edit origin/main 2>&1 | tee -a "$LOG"
+      rc=${PIPESTATUS[0]}
+      if [[ $rc -ne 0 ]]; then
+        echo "[$(date -u +%FT%Z)] merge of origin/main FAILED (rc=$rc) — leaving local commit, manual fix needed" | tee -a "$LOG"
+        return $rc
+      fi
+    fi
+  fi
+  sudo -u "$GIT_OWNER" env $GIT_ENV \
+    git -C "$REPO" push origin HEAD:main 2>&1 | tee -a "$LOG"
+  rc=${PIPESTATUS[0]}
+  echo "[$(date -u +%FT%TZ)] push rc=$rc" | tee -a "$LOG"
+  return $rc
+}
+sync_results
+
 echo "[$(date -u +%FT%TZ)] nightly benchmark sweep complete" | tee -a "$LOG"
