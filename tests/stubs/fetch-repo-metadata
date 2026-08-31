@@ -16,7 +16,9 @@ if len(sys.argv) < 3:
 repo_id, base_file = sys.argv[1], sys.argv[2]
 
 fixture = os.environ.get("HF_STUB_FIXTURE", "tiny")
-fixture_path = Path(__file__).resolve().parent.parent / "fixtures" / f"{fixture}.gguf"
+fixture_path = Path(os.environ.get("FAKE_GGUF", ""))
+if not fixture_path.is_file():
+    fixture_path = Path(__file__).resolve().parent.parent / "fixtures" / f"{fixture}.gguf"
 if not fixture_path.is_file():
     raise SystemExit(f"fixture not found: {fixture_path}")
 

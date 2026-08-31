@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-# Test resolver: fixture repositories are intentionally text-only.
+import os
 import sys
-sys.stdout.write("")
+
+path = os.environ.get("MMPROJ_STUB_PATH", "").strip()
+if path and os.path.isfile(path):
+    sys.stdout.write(path)
 raise SystemExit(0)

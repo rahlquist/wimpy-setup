@@ -25,13 +25,28 @@ make_td() {
   printf '%s' "$td"
 }
 
-# invoke fetch-model.sh with stubs on PATH, isolated sandbox
+# invoke fetch-model.sh with stubs on PATH, isolated sandbox.
+# A recording llama-hugs canonical API stub is started per test so the
+# persistence mirror is exercised end-to-end without touching a real router.
+# Set HUGS_STUB_FAIL=1 to make the stub answer 500 (persistence-failure tests).
 run_fetch() {
   local td="$1"; shift
+  local hugs_pid="" hugs_port=$((19300 + (RANDOM % 500)))
+  local rc=0
+  HUGS_STUB_LOG="$td/hugs.calls" HUGS_STUB_PORT="$hugs_port" \
+    HUGS_STUB_FAIL="${HUGS_STUB_FAIL:-0}" python3 "$STUBS/hugs_api.py" >/dev/null 2>&1 &
+  hugs_pid=$!
+  for ((i=0; i<50; i++)); do
+    if python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:$hugs_port/health', timeout=1)" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.1
+  done
   env \
     DOSSIER_DIR="$td" \
     FIXTURES="$REPO_DIR/tests/fixtures" \
     HF_STUB_FIXTURE="${HF_STUB_FIXTURE:-tiny}" \
+    FAKE_GGUF="$REPO_DIR/tests/fixtures/${HF_STUB_FIXTURE:-tiny}.gguf" \
     LLAMA_SERVER="$STUBS/llama-server" \
     LLAMA_SWAP_CONFIG="$td/llama-hugs-config.yaml" \
     MODEL_METADATA_DIR="$td/model-metadata" \
@@ -42,8 +57,18 @@ run_fetch() {
     MMPROJ_RESOLVER="$STUBS/mmproj-resolver" \
     REPO_META_TOOL="$STUBS/fetch-repo-metadata" \
     HF_STUB_LOG="$td/hf.calls" \
+    MMPROJ_STUB_PATH="${MMPROJ_STUB_PATH:-}" \
+    HUGS_API_URL="http://127.0.0.1:$hugs_port" \
+    HUGS_STUB_FAIL="${HUGS_STUB_FAIL:-0}" \
+    HUGS_PERSIST_FAIL="${HUGS_STUB_FAIL:-0}" \
+    HUGS_PERSIST_TOOL="$STUBS/hugs_canonical_persist.py" \
+    HUGS_PERSIST_STUB_FAIL="${HUGS_STUB_FAIL:-0}" \
+    HUGS_STUB_LOG="$td/hugs.calls" \
     PATH="$STUBS:$PATH" \
-    bash "$SCRIPT" "$@"
+    bash "$SCRIPT" "$@" || rc=$?
+  kill "$hugs_pid" 2>/dev/null || true
+  wait "$hugs_pid" 2>/dev/null || true
+  return "$rc"
 }
 
 # ── First: verify the stub server works in isolation ──
@@ -110,7 +135,7 @@ run_fetch "$td" -y 'hf://owner/repo/model.gguf' >/dev/null 2>&1 || true
 rc=0; OUT="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
 # Script now idempotent — consistent re-registration exits 0
 check_exit "T4: duplicate exits 0 (idempotent)" 0 "$rc"
-check_contains "T4: sidecar already exists msg" "already registered" "$OUT"
+check_contains "T4: model already registered msg" "already registered" "$OUT"
 rm -rf "$td"
 
 # T5: Low native context should be accepted and forced to the Hermes 64000 compatibility context
@@ -201,7 +226,7 @@ rm -rf "$td"
 # T16: No dossier on classify failure
 td="$(make_td)"; rc=0; OUT="$(run_fetch "$td" -y 'not-a-spec' 2>&1)" || rc=$?
 check_exit "T16: classify failure exits 1" 1 "$rc"
-[[ -z "$(ls "$td"/fetch-model-*.dossier.md 2>/dev/null)" ]] && ok "T16: no dossier on classify failure" || fail "T16: unexpected dossier"
+[[ -n "$(ls "$td"/fetch-model-*.dossier.md 2>/dev/null)" ]] && ok "T16: dossier on classify failure" || fail "T16: missing recovery dossier"
 rm -rf "$td"
 
 # T17: Same NAME from a DIFFERENT repo → auto-scoped id so both coexist
@@ -228,7 +253,7 @@ OUT="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=
 check_exit "T18: first registration exits 0" 0 "$rc"
 rc2=0; OUT2="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc2=$?
 check_exit "T18: second registration exits 0" 0 "$rc2"
-check_contains "T18: already registered msg" "already registered" "$OUT2"
+check_contains "T18: model already registered msg" "already registered" "$OUT2"
 rm -rf "$td"
 
 # T19: Acquisition failure cleanup (no partial model, no temp dirs)
@@ -237,6 +262,73 @@ OUT="$(MAX_RETRIES=1 HF_STUB_FAIL=1 run_fetch "$td" -y 'hf://owner/repo/model.gg
 check_exit "T19: acquisition failure exits non-zero" 1 "$rc"
 [[ -z "$(ls -A "$td/models" 2>/dev/null)" ]] && ok "T19: no files left in models dir" || fail "T19: files left in models dir"
 [[ -z "$(find "$td/models" -maxdepth 1 -type d -name '.fetch.*' -print -quit 2>/dev/null)" ]] && ok "T19: no temp dirs left" || fail "T19: temp acquisition dir left behind"
+rm -rf "$td"
+
+# ── Llama Hugs canonical persistence coverage (T20-T23) ──
+
+# T20: New registration mirrors model + gguf asset + smoke into the canonical API
+td="$(make_td)"; rc=0
+OUT="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
+check_exit "T20: register exits 0" 0 "$rc"
+check_contains "T20: persistence ok message" "persisted canonical Llama Hugs record" "$OUT"
+grep -qF '"path": "/api/hugs/models/hugs-model"' "$td/hugs.calls" && ok "T20: canonical model POST" || fail "T20: missing model POST"
+grep -qF '/api/hugs/models/hugs-model/assets' "$td/hugs.calls" && ok "T20: canonical asset POST" || fail "T20: missing asset POST"
+grep -qF '/api/hugs/models/hugs-model/smoke' "$td/hugs.calls" && ok "T20: canonical smoke POST" || fail "T20: missing smoke POST"
+python3 - "$td/hugs.calls" <<'PY' && ok "T20: payload fields correct" || fail "T20: payload fields wrong"
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+model = next(r for r in rows if r['path'] == '/api/hugs/models/hugs-model')
+assert model['body']['gpu_backend'] == 'ROCm', model['body']
+assert model['body']['context_size'] >= 64000
+assert model['body']['is_cuda_variant'] == 0
+assert model['body']['source_repo'] == 'owner/repo'
+asset = next(r for r in rows if r['path'].endswith('/assets'))
+assert asset['body']['asset_type'] == 'gguf', asset['body']
+assert asset['body']['load_target'] == 'vram' and asset['body']['offload_supported'] == 1
+assert asset['body']['disk_size_bytes'] > 0
+smoke = next(r for r in rows if r['path'].endswith('/smoke'))
+assert smoke['body']['success'] == 1
+# VRAM is never fabricated: the script does not measure it.
+assert smoke['body']['gpu_vram_before_bytes'] == 0 and smoke['body']['gpu_vram_peak_bytes'] == 0
+PY
+rm -rf "$td"
+
+# T21: Idempotent re-registration must NOT re-persist (PRIMARY_ALREADY guard)
+td="$(make_td)"
+run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' >/dev/null 2>&1 || true
+first_calls="$(grep -c 'POST' "$td/hugs.calls" 2>/dev/null || true)"
+rc=0; OUT="$(run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
+check_exit "T21: re-register exits 0" 0 "$rc"
+second_calls="$(grep -c 'POST' "$td/hugs.calls" 2>/dev/null || true)"
+[[ "$second_calls" == "$first_calls" ]] \
+  && ok "T21: no duplicate persistence on re-registration" \
+  || fail "T21: re-registration re-POSTed (first=$first_calls second=$second_calls)"
+rm -rf "$td"
+
+# T22: Canonical API failure is non-fatal — registration still completes
+td="$(make_td)"; rc=0
+OUT="$(HUGS_STUB_FAIL=1 run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
+check_exit "T22: register exits 0 despite API failure" 0 "$rc"
+if echo "$OUT" | grep -qE 'canonical Llama Hugs persistence failed|persistence failed'; then ok "T22: persistence failure warned"; else fail "T22: persistence failure warning missing"; fi
+grep -qF '"model":' "$td/llama-hugs-config.yaml" && ok "T22: config still written" || fail "T22: config missing after API failure"
+rm -rf "$td"
+
+# T23: Vision registration persists the mmproj asset alongside the GGUF
+td="$(make_td)"; cp "$REPO_DIR/tests/fixtures/tiny.gguf" "$td/fake-mmproj.gguf"
+rc=0; OUT="$(MMPROJ_STUB_PATH="$td/fake-mmproj.gguf" run_fetch "$td" -y --no-deploy 'hf://owner/repo/model.gguf' 2>&1)" || rc=$?
+check_exit "T23: vision register exits 0" 0 "$rc"
+check_contains "T23: mmproj acquired" "multimodal projector" "$OUT"
+python3 - "$td/hugs.calls" <<'PY' && ok "T23: mmproj asset persisted" || fail "T23: mmproj asset missing"
+import json, sys
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+assets = [r for r in rows if r['path'].endswith('/assets')]
+types = {a['body']['asset_type'] for a in assets}
+assert 'gguf' in types and 'mmproj' in types, types
+mm = next(a for a in assets if a['body']['asset_type'] == 'mmproj')
+assert mm['body']['asset_name'] == 'fake-mmproj.gguf', mm['body']
+assert mm['body']['load_target'] == 'vram' and mm['body']['offload_supported'] == 1
+assert mm['body']['disk_size_bytes'] > 0
+PY
 rm -rf "$td"
 
 # ─────────────────────────────────────────────────

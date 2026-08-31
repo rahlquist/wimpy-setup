@@ -142,6 +142,14 @@ DEPLOY_SOURCE_CONFIG="${DEPLOY_SOURCE_CONFIG:-$SCRIPT_DIR/llama-hugs-config.yaml
 DEPLOY_HELPER="${DEPLOY_HELPER:-/usr/local/sbin/llama-hugs-deploy}"
 MMPROJ_RESOLVER="${MMPROJ_RESOLVER:-$SCRIPT_DIR/tools/resolve_and_fetch_mmproj.py}"
 REPO_META_TOOL="${REPO_META_TOOL:-$SCRIPT_DIR/tools/fetch_repo_metadata.py}"
+# Canonical Llama Hugs persistence: after a successful NEW registration the
+# model, its assets, and the smoke-test result are mirrored into the fork's
+# SQLite registry via its canonical API. Best-effort by design — a failure is
+# a warning, never a pipeline failure (the source config stays authoritative).
+HUGS_API_URL="${HUGS_API_URL:-http://127.0.0.1:8080}"
+HUGS_API_TIMEOUT="${HUGS_API_TIMEOUT:-10}"
+HUGS_PERSIST_TOOL="${HUGS_PERSIST_TOOL:-$SCRIPT_DIR/tools/hugs_canonical_persist.py}"
+HUGS_PERSIST_FAIL="${HUGS_PERSIST_FAIL:-0}"
 
 NAME=""; CTX="64000"; CTX_REQUESTED=""; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1; DO_DEPLOY=1; DO_MMPROJ=1
 NAME_EXPLICIT=""
@@ -981,7 +989,7 @@ PY
   set -e
   case "$sidecar_rc" in
     0)
-      warn "metadata sidecar already exists: $SIDECAR (consistent); primary registration will be skipped."
+      warn "model already registered; metadata sidecar already exists: $SIDECAR (consistent); primary registration will be skipped."
       PRIMARY_ALREADY=1
       ;;
     2) die "name collision: '$NAME' already registered for a different model ($SIDECAR)";;
@@ -1110,6 +1118,126 @@ mv -- "$INVENTORY_TMP" "$INVENTORY_PATH"
 rm -f -- "$CONFIG_BACKUP"
 ok "wrote metadata sidecar: $SIDECAR"
 ok "updated model inventory: $INVENTORY_PATH"
+fi
+
+# --- Canonical Llama Hugs persistence ----------------------------------------
+# On a successful NEW registration, mirror the canonical model row, its assets
+# (primary GGUF, mmproj when present), and the smoke-test result into the
+# Llama Hugs SQLite registry via the fork's canonical API:
+#   POST /api/hugs/models/{model}          hugs_models upsert
+#   POST /api/hugs/models/{model}/assets   hugs_model_assets upsert
+#   POST /api/hugs/models/{model}/smoke    hugs_smoke_tests insert
+# The runtime ID is the hugs-prefixed one the fork's router actually serves
+# (gen-config.py prefixes every source id with "hugs-"), so the canonical
+# registry and the live router agree on identity. This is a BEST-EFFORT
+# mirror: the source config remains the single source of truth, so any
+# failure here is a warning, never a pipeline failure. VRAM measurements are
+# never invented — the script does not observe VRAM, so the before/peak/after
+# smoke fields are left 0 (unknown) and the smoke row records only what the
+# pipeline actually knows (success, backend, context, notes).
+if (( ! PRIMARY_ALREADY )); then
+  HUGS_PAYLOAD="$(mktemp /tmp/fetch-model.hugs.XXXXXX.json)"
+  set +e
+  HUGS_BUILD_RC=0
+  python3 - "$HUGS_PAYLOAD" "$NAME" "$MODEL_PATH" "$FILE" "$REPO_ID" "$GPU_DEVICE" \
+    "$EFFECTIVE_CTX" "$CPU_MOE" "$MMPROJ_PATH" "$METADATA_JSON" "$REPO_META_JSON" \
+    "$REPO_SHA" "$REPO_HAS_SHA" "$CTX_MODE" "$DO_SMOKE" "$SRC_CLASS" <<'PY' || HUGS_BUILD_RC=$?
+import json, os, sys
+out, name, model_path, file_name, repo_id, gpu_device, eff_ctx, cpu_moe, \
+    mmproj_path, metadata_raw, repo_meta_raw, repo_sha, repo_has_sha, \
+    ctx_mode, do_smoke, src_class = sys.argv[1:]
+metadata = json.loads(metadata_raw or '{}')
+repo_meta = json.loads(repo_meta_raw or '{}')
+model_id = 'hugs-' + name
+vision = bool(mmproj_path) or ('image' in (repo_meta.get('pipeline_tag', '') or '').lower())
+# ROCm0 -> ROCm, CUDA0 -> CUDA (schema comment: ROCm | CUDA | CPU).
+backend = ''.join(ch for ch in gpu_device if not ch.isdigit()) or 'unknown'
+cap_in = ['text'] + (['image'] if vision else [])
+capabilities = {'in': cap_in, 'out': ['text'], 'tools': False, 'context': int(eff_ctx or 0) or 0}
+display = (repo_meta.get('repo_name') or metadata.get('name') or '').strip()[:128] or file_name
+eff = int(eff_ctx or 0) or 0
+assets = [{
+    'asset_type': 'gguf',
+    'asset_name': file_name,
+    'local_path': model_path,
+    'local_filename': os.path.basename(model_path),
+    'disk_size_bytes': os.path.getsize(model_path),
+    'vram_required_bytes': 0,           # not measured per-asset
+    'system_ram_required_bytes': 0,     # not measured
+    'load_target': 'vram',              # smoke test loaded with --n-gpu-layers 99
+    'offload_supported': 1,
+    'purpose': 'primary GGUF weights',
+    'measurement_source': 'observed',   # disk size observed via stat
+    'sha256': repo_sha if (repo_has_sha == '1' and repo_sha) else '',
+}]
+if mmproj_path and os.path.isfile(mmproj_path):
+    assets.append({
+        'asset_type': 'mmproj',
+        'asset_name': os.path.basename(mmproj_path),
+        'local_path': mmproj_path,
+        'local_filename': os.path.basename(mmproj_path),
+        'disk_size_bytes': os.path.getsize(mmproj_path),
+        'vram_required_bytes': 0,
+        'system_ram_required_bytes': 0,
+        'load_target': 'vram',          # loaded by the same GPU llama-server
+        'offload_supported': 1,
+        'purpose': 'multimodal projector (vision)',
+        'measurement_source': 'observed',
+        'sha256': '',
+    })
+smoke = None
+if do_smoke == '1':
+    smoke = {
+        'gpu_backend': gpu_device,
+        'context_size': eff,
+        'gpu_vram_before_bytes': 0,     # never fabricated
+        'gpu_vram_peak_bytes': 0,
+        'gpu_vram_after_bytes': 0,
+        'success': 1,
+        'error': '',
+        'notes': f'fetch-model.sh smoke test: ctx={eff_ctx} ({ctx_mode}), device={gpu_device}, cpu-moe={cpu_moe or "none"}',
+    }
+model = {
+    'base_model_id': repo_id if src_class == 'hf' else '',
+    'display_name': display,
+    'source_repo': repo_id,
+    'gguf_path': model_path,
+    'gpu_backend': backend,
+    'is_cuda_variant': 0,
+    'context_size': eff,
+    'capabilities_json': json.dumps(capabilities),
+    'status': 'active',
+    'notes': f'registered by fetch-model.sh; ctx mode: {ctx_mode}',
+}
+with open(out, 'w', encoding='utf-8') as f:
+    json.dump({'model_id': model_id, 'model': model, 'assets': assets, 'smoke': smoke}, f, sort_keys=True)
+    f.write('\n')
+PY
+  HUGS_BUILD_RC=$?
+  set -e
+  if (( HUGS_BUILD_RC != 0 )); then
+    rm -f -- "$HUGS_PAYLOAD"
+    warn "could not assemble canonical Llama Hugs payload; persistence skipped (registration itself is complete)."
+  else
+    set +e
+    HUGS_PERSIST_RC=0
+    if (( HUGS_PERSIST_FAIL )); then
+      HUGS_PERSIST_RC=2
+    else
+      python3 "$HUGS_PERSIST_TOOL" --api-url "$HUGS_API_URL" --payload "$HUGS_PAYLOAD" --timeout "$HUGS_API_TIMEOUT" || HUGS_PERSIST_RC=$?
+    fi
+    set -e
+    rm -f -- "$HUGS_PAYLOAD"
+    if (( HUGS_PERSIST_RC == 0 )); then
+      if (( DO_SMOKE )); then
+        ok "persisted canonical Llama Hugs record for 'hugs-$NAME' (assets + smoke mirrored)."
+      else
+        ok "persisted canonical Llama Hugs record for 'hugs-$NAME' (assets mirrored; smoke skipped)."
+      fi
+    else
+      warn "canonical Llama Hugs persistence failed (exit $HUGS_PERSIST_RC); registration itself is complete — config and sidecar remain the source of truth. Persistence failed."
+    fi
+  fi
 fi
 
 if (( CUDA_SUPPORTED )) && (( DO_REGISTER )) && [[ -x "$CUDA_SERVER" ]]; then
