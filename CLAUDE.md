@@ -200,25 +200,6 @@ Do NOT add nftables rules alongside UFW; they conflict (UFW uses iptables-nft).
 **Verify from the VM:**
 `curl http://wimpy.home.lan:8080/v1/models`
 
-**Set up passwordless SSH between host and VM** (run on the host):
-```bash
-# Host → VM (one-time password prompt for the VM)
-ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -C "rahlquist@wimpy"
-ssh-keyscan -H <VM-IP> >> ~/.ssh/known_hosts
-ssh-copy-id rahlquist@<VM-IP>          # prompts for VM password once
-
-# VM → Host (no password needed once host→VM is set up)
-ssh rahlquist@<VM-IP> 'ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -C "rahlquist@<VM-hostname>"'
-ssh rahlquist@<VM-IP> 'cat ~/.ssh/id_ed25519.pub' >> ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
-ssh rahlquist@<VM-IP> 'bash -c "ssh-keyscan -H <HOST-IP> >> ~/.ssh/known_hosts"'
-```
-Note: VMs on this host run fish shell — always wrap remote commands in `bash -c "..."`.
-
-**Add models** one at a time with `fetch-model.sh` (use `hf`, not
-`huggingface-cli` — the latter is deprecated):
-`./fetch-model.sh "hf download hf://owner/repo/file.gguf"`
-
 ## Load test results (2026-06-28, all 18 models — pre-migration, RTX 5060 Ti)
 
 **Historical — from the CUDA/RTX 5060 Ti era, kept for the per-model tuning
