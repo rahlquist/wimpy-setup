@@ -156,6 +156,25 @@ NAME_EXPLICIT=""
 SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""
 KEEP_SOURCE=0; SOURCE_COPIED=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""; REMOTE_FILE=""
 MMPROJ_PATH=""
+VRAM_BEFORE_BYTES=0
+VRAM_PEAK_BYTES=0
+VRAM_AFTER_BYTES=0
+read_gpu_vram_bytes() {
+  local device="$1" value=0 file
+  if [[ "$device" == ROCm* ]]; then
+    for file in /sys/class/drm/card*/device/mem_info_vram_used; do
+      [[ -r "$file" ]] || continue
+      local current
+      current="$(cat "$file" 2>/dev/null || printf 0)"
+      [[ "$current" =~ ^[0-9]+$ ]] || continue
+      (( current > value )) && value="$current"
+    done
+  elif [[ "$device" == CUDA* ]] && command -v nvidia-smi >/dev/null 2>&1; then
+    value="$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | awk 'NR==1 {printf "%d", $1 * 1048576}')"
+    [[ "$value" =~ ^[0-9]+$ ]] || value=0
+  fi
+  printf '%s\n' "$value"
+}
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -n) NAME="${2:-}"; NAME_EXPLICIT=1; shift 2;;
@@ -854,6 +873,8 @@ cleanup(){
 trap cleanup EXIT INT TERM
 smoke_test(){
   SMOKE_LOG="$(mktemp /tmp/fetch-model.smoke.XXXXXX.log)"
+  VRAM_BEFORE_BYTES="$(read_gpu_vram_bytes "$GPU_DEVICE")"
+  VRAM_PEAK_BYTES="$VRAM_BEFORE_BYTES"
   info "smoke test: ctx=$EFFECTIVE_CTX ($CTX_MODE) device=$GPU_DEVICE cpu-moe=${CPU_MOE:-none}"
   env "${GPU_ENV_VAR}=${GPU_PIN_VALUE}" "$LLAMA_SERVER" --model "$MODEL_PATH" --n-gpu-layers 99 "${MOE_ARG[@]}" \
     --device "$GPU_DEVICE" --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 "${CTX_ARG[@]}" "${NOMMAP_ARG[@]}" "${MMPROJ_ARG[@]}" --jinja \
@@ -861,6 +882,8 @@ smoke_test(){
   SERVER_PID=$!
   local i code ready=0
   for ((i=0; i<SMOKE_TRIES; i++)); do
+    current_vram="$(read_gpu_vram_bytes "$GPU_DEVICE")"
+    (( current_vram > VRAM_PEAK_BYTES )) && VRAM_PEAK_BYTES="$current_vram"
     kill -0 "$SERVER_PID" 2>/dev/null || break
     code="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$SMOKE_PORT/health" 2>/dev/null || true)"
     [[ "$code" == 200 ]] && { ready=1; break; }
@@ -889,6 +912,7 @@ smoke_test(){
   # the server produced real generation — non-empty `content` OR non-empty
   # `reasoning_content` OR a token-producing, non-error completion. HTTP errors,
   # malformed JSON, empty bodies, and server errors remain failures.
+  VRAM_AFTER_BYTES="$(read_gpu_vram_bytes "$GPU_DEVICE")"
   local completion http_code
   http_code="$(curl -sS --max-time 60 -o /tmp/fetch-model.completion.$$ \
     -w '%{http_code}' "http://127.0.0.1:$SMOKE_PORT/completion" \
@@ -1141,11 +1165,12 @@ if (( ! PRIMARY_ALREADY )); then
   HUGS_BUILD_RC=0
   python3 - "$HUGS_PAYLOAD" "$NAME" "$MODEL_PATH" "$FILE" "$REPO_ID" "$GPU_DEVICE" \
     "$EFFECTIVE_CTX" "$CPU_MOE" "$MMPROJ_PATH" "$METADATA_JSON" "$REPO_META_JSON" \
-    "$REPO_SHA" "$REPO_HAS_SHA" "$CTX_MODE" "$DO_SMOKE" "$SRC_CLASS" <<'PY' || HUGS_BUILD_RC=$?
+    "$REPO_SHA" "$REPO_HAS_SHA" "$CTX_MODE" "$DO_SMOKE" "$SRC_CLASS" \
+    "$VRAM_BEFORE_BYTES" "$VRAM_PEAK_BYTES" "$VRAM_AFTER_BYTES" <<'PY' || HUGS_BUILD_RC=$?
 import json, os, sys
 out, name, model_path, file_name, repo_id, gpu_device, eff_ctx, cpu_moe, \
     mmproj_path, metadata_raw, repo_meta_raw, repo_sha, repo_has_sha, \
-    ctx_mode, do_smoke, src_class = sys.argv[1:]
+    ctx_mode, do_smoke, src_class, vram_before, vram_peak, vram_after = sys.argv[1:]
 metadata = json.loads(metadata_raw or '{}')
 repo_meta = json.loads(repo_meta_raw or '{}')
 model_id = 'hugs-' + name
@@ -1190,9 +1215,9 @@ if do_smoke == '1':
     smoke = {
         'gpu_backend': gpu_device,
         'context_size': eff,
-        'gpu_vram_before_bytes': 0,     # never fabricated
-        'gpu_vram_peak_bytes': 0,
-        'gpu_vram_after_bytes': 0,
+        'gpu_vram_before_bytes': int(vram_before or 0),
+        'gpu_vram_peak_bytes': int(vram_peak or 0),
+        'gpu_vram_after_bytes': int(vram_after or 0),
         'success': 1,
         'error': '',
         'notes': f'fetch-model.sh smoke test: ctx={eff_ctx} ({ctx_mode}), device={gpu_device}, cpu-moe={cpu_moe or "none"}',
