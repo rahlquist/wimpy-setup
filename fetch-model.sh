@@ -1222,6 +1222,27 @@ if do_smoke == '1':
         'error': '',
         'notes': f'fetch-model.sh smoke test: ctx={eff_ctx} ({ctx_mode}), device={gpu_device}, cpu-moe={cpu_moe or "none"}',
     }
+# Compute hf: tags from authoritative GGUF inspection (pipeline knows these
+# for certain; the fork's HF scanner may miss them for repos without Hub
+# signals). These get read-merged-POSTed to hugs_model_meta so the UI badges
+# render correctly.
+hf_tags = ['hf:checked']
+if vision:
+    hf_tags.append('hf:vision')
+if metadata.get('has_mtp'):
+    hf_tags.append('hf:mtp')
+hf_tags_str = ', '.join(hf_tags)
+# Hermes handoff line for follow-up HF research when MTP is present.
+mtp_handoff = ''
+if metadata.get('has_mtp'):
+    mtp_handoff = (
+        f'hermes chat -q "Investigate {repo_id} on Hugging Face: '
+        f'does the repo carry MTP signals (tags like mtp/mtp-head, '
+        f'sibling *-mtp.gguf files)? The GGUF has MTP tensors '
+        f'({", ".join(metadata.get("mtp_tensor_sample", [])[:3])}), '
+        f'but the fork\'s HF scanner may not have detected them. '
+        f'Summarize what you find."')
+notes = f'registered by fetch-model.sh; ctx mode: {ctx_mode}'
 model = {
     'base_model_id': repo_id if src_class == 'hf' else '',
     'display_name': display,
@@ -1232,10 +1253,12 @@ model = {
     'context_size': eff,
     'capabilities_json': json.dumps(capabilities),
     'status': 'active',
-    'notes': f'registered by fetch-model.sh; ctx mode: {ctx_mode}',
+    'notes': notes,
 }
 with open(out, 'w', encoding='utf-8') as f:
-    json.dump({'model_id': model_id, 'model': model, 'assets': assets, 'smoke': smoke}, f, sort_keys=True)
+    json.dump({'model_id': model_id, 'model': model, 'assets': assets,
+               'smoke': smoke, 'hf_tags': hf_tags_str,
+               'mtp_handoff': mtp_handoff}, f, sort_keys=True)
     f.write('\n')
 PY
   HUGS_BUILD_RC=$?
@@ -1249,9 +1272,16 @@ PY
     if (( HUGS_PERSIST_FAIL )); then
       HUGS_PERSIST_RC=2
     else
-      python3 "$HUGS_PERSIST_TOOL" --api-url "$HUGS_API_URL" --payload "$HUGS_PAYLOAD" --timeout "$HUGS_API_TIMEOUT" || HUGS_PERSIST_RC=$?
+      # Read-merge-POST pipeline-derived hf: tags so the UI badges render
+      # even when the fork's HF scanner misses signals (e.g. MTP for repos
+      # like ISTA-DASLab that lack Hub-level mtp tags).
+      PY_TAGS="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("hf_tags",""))' "$HUGS_PAYLOAD" 2>/dev/null || true)"
+      mtp_handoff="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("mtp_handoff",""))' "$HUGS_PAYLOAD" 2>/dev/null || true)"
+      PERSIST_ARGS=(--api-url "$HUGS_API_URL" --payload "$HUGS_PAYLOAD" --timeout "$HUGS_API_TIMEOUT")
+      [[ -n "$PY_TAGS" ]] && PERSIST_ARGS+=(--meta-tags "$PY_TAGS")
+      python3 "$HUGS_PERSIST_TOOL" "${PERSIST_ARGS[@]}" || HUGS_PERSIST_RC=$?
     fi
-    set -e
+    set +e
     rm -f -- "$HUGS_PAYLOAD"
     if (( HUGS_PERSIST_RC == 0 )); then
       if (( DO_SMOKE )); then
@@ -1327,6 +1357,19 @@ printf 'Model: %s bytes, configured context: %s\n' "$(stat -c '%s' "$MODEL_PATH"
 printf 'Warnings: %s\n' "${WARNINGS:-none}"
 
 deploy_live_config
+
+# End-of-import notification for follow-up research.
+# When the GGUF has MTP tensors but the repo may lack Hub signals, surface a
+# Hermes handoff line so the operator can investigate HF directly.
+if [[ -n "$mtp_handoff" ]]; then
+  printf '\n'
+  printf '  \033[33m[!] MTP detected in GGUF; the fork HF scanner may miss it for repos without Hub signals.\033[0m\n'
+  printf '  \033[33m    Review: curl -s http://localhost:8080/api/hugs/meta/hugs-%s\033[0m\n' "$NAME"
+  printf '  \033[33m    Or hand off to Hermes on HF:\033[0m\n'
+  printf '\n'
+  printf '  \033[36m%s\033[0m\n' "$mtp_handoff"
+  printf '\n'
+fi
 
 info 'repository changes are local only; review, commit, and push manually if desired.'
 
