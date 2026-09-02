@@ -72,6 +72,10 @@ groups:
     swap: true          # one model at a time on the single R9700
     exclusive: false    # do NOT unload the nvidia group when an AMD model loads
     members:
+      - "qwen3-8-27b-gsq-rco-iq3-s-mtp"
+      - "whittle-moe-27b-a18b-v2-2-1-q3-k-m"
+      - "whittle-moe-27b-a18b-v2-2-1-q8-0"
+      - "llama-3-2-3b-instruct-q4-k-m"
       - "qwen3-8-27b-ud-iq4-xs"
       - "prompt-enhancer-uncensored-q8-0"
       - "zen-voyager-i1-q5-k-m"
@@ -134,6 +138,7 @@ groups:
     swap: true          # one model at a time on the single 5060 Ti
     exclusive: false    # do NOT unload the amd group when a CUDA model loads
     members:
+      - "llama-3-2-3b-instruct-q4-k-m-cuda"
       - "prompt-enhancer-uncensored-q8-0-cuda"
       - "qwen3-8-27b-ud-iq2-xxs-cuda"
       - "qwen3-8-27b-crack-iq2-m-cuda"
@@ -162,6 +167,125 @@ groups:
       - "ling-mini-2-q6-cuda"
 
 models:
+  "qwen3-8-27b-gsq-rco-iq3-s-mtp":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    name: "Qwen3.8-27B-GSQ-RCO-GGUF"
+    description: "GSQ-RCO non-uniform mixed-precision GGUF (Deep Algorithms and Systems Lab, ISTA)"
+    capabilities:
+      in: ["text", "image"]
+      out: ["text"]
+      tools: false
+      context: 65536
+    metadata:
+      source_repo: "ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF"
+      repo_url: "https://huggingface.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF"
+      file_size_bytes: 12120016960
+      file_sha256: "58fd826723939933dc86f45b7fe04545cbc2de1c70f6fe2cdd3858c87a98c12f"
+      has_checksum: true
+      vision: true
+      mmproj: "/home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.mmproj.gguf"
+      mmproj_filename: "Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.mmproj.gguf"
+      mtp: true
+      mtp_flag: "--spec-type draft-mtp"
+      pipeline_tag: "image-text-to-text"
+      mtp_tensor_sample:
+        - "blk.64.nextn.eh_proj.weight"
+        - "blk.64.nextn.shared_head_norm.weight"
+        - "blk.64.nextn.enorm.weight"
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.mmproj.gguf --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
+  "whittle-moe-27b-a18b-v2-2-1-q3-k-m":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    name: "Qwen3.8-Whittle-MoE-27B-A17.8B-GGUF"
+    capabilities:
+      in: ["text", "image"]
+      out: ["text"]
+      tools: false
+      context: 65536
+    metadata:
+      source_repo: "logic65/Qwen3.8-Whittle-MoE-27B-A17.8B-GGUF"
+      repo_url: "https://huggingface.co/logic65/Qwen3.8-Whittle-MoE-27B-A17.8B-GGUF"
+      file_size_bytes: 13874251328
+      file_sha256: "b32cc1f4f4661925e163937213932c4571e88d3d5da381ed79515cffae46e305"
+      has_checksum: true
+      vision: true
+      mmproj: "/home/rahlquist/.cache/llama.cpp/Whittle-MoE-27B-A18B-v2.2.1-Q3_K_M.mmproj.gguf"
+      mmproj_filename: "Whittle-MoE-27B-A18B-v2.2.1-Q3_K_M.mmproj.gguf"
+      mtp: false
+      mtp_flag: null
+      pipeline_tag: "text-generation"
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Whittle-MoE-27B-A18B-v2.2.1-Q3_K_M.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Whittle-MoE-27B-A18B-v2.2.1-Q3_K_M.mmproj.gguf --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
+  "whittle-moe-27b-a18b-v2-2-1-q8-0":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    name: "Qwen3.8-Whittle-MoE-27B-A17.8B-GGUF"
+    capabilities:
+      in: ["text", "image"]
+      out: ["text"]
+      tools: false
+      context: 65536
+    metadata:
+      source_repo: "logic65/Qwen3.8-Whittle-MoE-27B-A17.8B-GGUF"
+      repo_url: "https://huggingface.co/logic65/Qwen3.8-Whittle-MoE-27B-A17.8B-GGUF"
+      file_size_bytes: 28680984128
+      file_sha256: "5d82ff4dcb8e185564a08b6b5949f58cb04dc57175a502c52c6afc3aa5703622"
+      has_checksum: true
+      vision: true
+      mmproj: "/home/rahlquist/.cache/llama.cpp/Whittle-MoE-27B-A18B-v2.2.1-Q8_0.mmproj.gguf"
+      mmproj_filename: "Whittle-MoE-27B-A18B-v2.2.1-Q8_0.mmproj.gguf"
+      mtp: false
+      mtp_flag: null
+      pipeline_tag: "text-generation"
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Whittle-MoE-27B-A18B-v2.2.1-Q8_0.gguf
+      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Whittle-MoE-27B-A18B-v2.2.1-Q8_0.mmproj.gguf --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
+  "llama-3-2-3b-instruct-q4-k-m-cuda":
+    ttl: 300
+    env: ["CUDA_VISIBLE_DEVICES=0"]
+    metadata:
+      source_repo: "local/local"
+      repo_url: ""
+      file_size_bytes: None
+      file_sha256: ""
+      vision: false
+      pipeline_tag: ""
+    cmd: |
+      /opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Llama-3.2-3B-Instruct-Q4_K_M.gguf
+      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
+  "llama-3-2-3b-instruct-q4-k-m":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    name: "Llama 3.2 3B Instruct"
+    capabilities:
+      in: ["text"]
+      out: ["text"]
+      tools: false
+      context: 65536
+    metadata:
+      source_repo: ""
+      repo_url: ""
+      file_size_bytes: null
+      file_sha256: null
+      has_checksum: false
+      vision: false
+      mmproj: null
+      mmproj_filename: null
+      mtp: false
+      mtp_flag: null
+      pipeline_tag: null
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Llama-3.2-3B-Instruct-Q4_K_M.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
   "qwen3-8-27b-ud-iq4-xs":
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
