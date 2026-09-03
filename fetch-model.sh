@@ -564,6 +564,12 @@ import json,sys
 print(json.loads(sys.argv[1]).get('description','').replace('\n',' ').strip())
 PY
 )"
+# MTP: GGUF has MTP tensors -> enable speculative decoding at runtime.
+HAS_MTP="$(python3 - "$METADATA_JSON" <<'PY'
+import json,sys
+print('yes' if json.loads(sys.argv[1]).get('has_mtp') else '')
+PY
+)"
 # --- Exclusion gate: flag Mac-only / unsupported models BEFORE smoke/register.
 set_stage "exclude"
 if is_excluded_model; then
@@ -792,6 +798,12 @@ MMPROJ_ARG=()
 if [[ -n "$MMPROJ_PATH" ]]; then
   MMPROJ_ARG=(--mmproj "$MMPROJ_PATH")
 fi
+# MTP: if the GGUF has MTP tensors, enable speculative decoding.
+# This mirrors the mtp_flag metadata but actually wires it into the cmd.
+MTP_ARG=()
+if [[ -n "${HAS_MTP:-}" ]]; then
+  MTP_ARG=(--spec-type draft-mtp)
+fi
 # Emit --ctx-size when the model needs the Hermes-compatibility floor (native < 64000),
 # when the operator explicitly requested a context via -c, OR when we capped the
 # native context to fit VRAM headroom (CTX_CAPPED).
@@ -801,7 +813,7 @@ fi
 CTX_TEXT="${CTX_ARG[*]:-}"
 CMD_LINES=(
   "$LLAMA_SERVER --model $MODEL_PATH"
-  "--n-gpu-layers 99 ${MOE_ARG[*]:-} ${NOMMAP_ARG[*]:-} --device $GPU_DEVICE --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 $CTX_TEXT ${MMPROJ_ARG[*]:-} --jinja"
+  "--n-gpu-layers 99 ${MOE_ARG[*]:-} ${NOMMAP_ARG[*]:-} ${MTP_ARG[*]:-} --device $GPU_DEVICE --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 $CTX_TEXT ${MMPROJ_ARG[*]:-} --jinja"
   '--host 0.0.0.0 --port ${PORT} --metrics'
 )
 # Remove the harmless double space when MoE offload is not configured.

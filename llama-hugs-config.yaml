@@ -196,7 +196,7 @@ models:
     cmd: |
       /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf
       --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 262144 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.mmproj.gguf --jinja
-      --host 0.0.0.0 --port ${PORT} --metrics
+      --host 0.0.0.0 --port ${PORT} --metrics --spec-type draft-mtp
   "whittle-moe-27b-a18b-v2-2-1-q3-k-m":
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
