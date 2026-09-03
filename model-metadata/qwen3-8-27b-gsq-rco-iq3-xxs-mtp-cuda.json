@@ -1,0 +1,51 @@
+{
+  "alias": "qwen3-8-27b-gsq-rco-iq3-xxs-mtp-cuda",
+  "description": "GSQ-RCO non-uniform mixed-precision GGUF (Deep Algorithms and Systems Lab, ISTA)",
+  "file_sha256": "63f29a2189a6b4cc31f81e093d3856ad293a5583114439f41ae1ed7af4093262",
+  "file_size_bytes": 10442827840,
+  "filename": "Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf",
+  "gguf": {
+    "ambiguous_vision": false,
+    "architecture": "qwen35",
+    "attention_head_count": 24,
+    "attention_head_count_kv": 4,
+    "attention_key_length": 256,
+    "attention_value_length": 256,
+    "block_count": 65,
+    "context_length": 262144,
+    "description": "GSQ-RCO non-uniform mixed-precision GGUF (Deep Algorithms and Systems Lab, ISTA)",
+    "embedded_projector": false,
+    "embedding_length": 5120,
+    "expert_count": 0,
+    "expert_used_count": 0,
+    "has_mtp": true,
+    "mtp_flag": "--spec-type draft-mtp",
+    "mtp_tensor_sample": [
+      "blk.64.nextn.eh_proj.weight",
+      "blk.64.nextn.shared_head_norm.weight",
+      "blk.64.nextn.enorm.weight",
+      "blk.64.nextn.hnorm.weight"
+    ],
+    "multimodal": false,
+    "name": "Qwen3.8-27B GSQ-RCO",
+    "needs_external_projector": false
+  },
+  "has_checksum": true,
+  "has_mtp": true,
+  "mmproj_filename": "Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.mmproj.gguf",
+  "mmproj_path": "/home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.mmproj.gguf",
+  "model_path": "/home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf",
+  "mtp_flag": "--spec-type draft-mtp",
+  "mtp_tensor_sample": [
+    "blk.64.nextn.eh_proj.weight",
+    "blk.64.nextn.shared_head_norm.weight",
+    "blk.64.nextn.enorm.weight"
+  ],
+  "n_cpu_moe": null,
+  "native_context": 262144,
+  "pipeline_tag": "image-text-to-text",
+  "repo_url": "https://huggingface.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF",
+  "repository": "ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF",
+  "requested_context": 65536,
+  "vision": true
+}
