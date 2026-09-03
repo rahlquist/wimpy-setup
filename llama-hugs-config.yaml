@@ -199,7 +199,7 @@ models:
       in: ["text", "image"]
       out: ["text"]
       tools: false
-      context: 65536
+      context: 262144
     metadata:
       source_repo: "ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF"
       repo_url: "https://huggingface.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF"
@@ -218,7 +218,7 @@ models:
         - "blk.64.nextn.enorm.weight"
     cmd: |
       /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf
-      --n-gpu-layers 99 --spec-type draft-mtp --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.mmproj.gguf --jinja
+      --n-gpu-layers 99 --spec-type draft-mtp --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 262144 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.mmproj.gguf --jinja
       --host 0.0.0.0 --port ${PORT} --metrics
   "qwen3-8-27b-gsq-rco-iq3-s-mtp":
     ttl: 300
