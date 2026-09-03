@@ -1338,7 +1338,7 @@ if (( CUDA_SUPPORTED )) && (( DO_REGISTER )) && [[ -x "$CUDA_SERVER" ]]; then
     CUDA_COMMAND_FILE="$(mktemp /tmp/fetch-model.cuda-cmd.XXXXXX)"
     printf '%s\n' \
       "$CUDA_SERVER --model $MODEL_PATH" \
-      "--n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 $CTX_TEXT --jinja" \
+      "--n-gpu-layers 99 ${MTP_ARG[*]:-} --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 $CTX_TEXT --jinja" \
       '--host 0.0.0.0 --port ${PORT} --metrics' > "$CUDA_COMMAND_FILE"
     CUDA_METADATA_JSON="$METADATA_JSON"
     set +e

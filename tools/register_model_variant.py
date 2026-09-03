@@ -81,6 +81,15 @@ def main() -> int:
     repo_meta = json.loads(args.repo_meta_json or "{}")
     mmproj_path = args.mmproj_path or ""
     has_mtp = bool(metadata.get("has_mtp"))
+    # Inject MTP into the command line (the CUDA variant file wasn't generated
+    # with MTP awareness). Insert --spec-type draft-mtp after --n-gpu-layers.
+    if has_mtp and not any("--spec-type" in line for line in command):
+        new_command = []
+        for line in command:
+            new_command.append(line)
+            if "--n-gpu-layers" in line and "--spec-type" not in line:
+                new_command.append("--spec-type draft-mtp")
+        command = new_command
     block = [f'{child_indent}"{args.name}":', f'{field_indent}ttl: {args.ttl}', f'{field_indent}env: ["{args.env}"]']
     detail_lines = []
     if mmproj_path:
