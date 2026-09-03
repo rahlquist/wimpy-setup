@@ -72,7 +72,6 @@ groups:
     swap: true          # one model at a time on the single R9700
     exclusive: false    # do NOT unload the nvidia group when an AMD model loads
     members:
-      - "qwen3-8-27b-gsq-rco-iq3-xxs-mtp"
       - "qwen3-8-27b-gsq-rco-iq3-s-mtp"
       - "whittle-moe-27b-a18b-v2-2-1-q3-k-m"
       - "whittle-moe-27b-a18b-v2-2-1-q8-0"
@@ -139,7 +138,6 @@ groups:
     swap: true          # one model at a time on the single 5060 Ti
     exclusive: false    # do NOT unload the amd group when a CUDA model loads
     members:
-      - "qwen3-8-27b-gsq-rco-iq3-xxs-mtp-cuda"
       - "llama-3-2-3b-instruct-q4-k-m-cuda"
       - "prompt-enhancer-uncensored-q8-0-cuda"
       - "qwen3-8-27b-ud-iq2-xxs-cuda"
@@ -169,57 +167,6 @@ groups:
       - "ling-mini-2-q6-cuda"
 
 models:
-  "qwen3-8-27b-gsq-rco-iq3-xxs-mtp-cuda":
-    ttl: 300
-    env: ["CUDA_VISIBLE_DEVICES=0"]
-    capabilities:
-      in: ["text", "image"]
-      out: ["text"]
-    metadata:
-      source_repo: "ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF"
-      repo_url: "https://huggingface.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF"
-      file_size_bytes: 10442827840
-      file_sha256: "63f29a2189a6b4cc31f81e093d3856ad293a5583114439f41ae1ed7af4093262"
-      vision: true
-      mmproj: "/home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.mmproj.gguf"
-      mmproj_filename: "Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.mmproj.gguf"
-      mtp: true
-      mtp_flag: "--spec-type draft-mtp"
-      pipeline_tag: "image-text-to-text"
-    cmd: |
-      /opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf
-      --n-gpu-layers 99 --spec-type draft-mtp --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
-      --host 0.0.0.0 --port ${PORT} --metrics
-  "qwen3-8-27b-gsq-rco-iq3-xxs-mtp":
-    ttl: 300
-    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
-    name: "Qwen3.8-27B-GSQ-RCO-GGUF"
-    description: "GSQ-RCO non-uniform mixed-precision GGUF (Deep Algorithms and Systems Lab, ISTA)"
-    capabilities:
-      in: ["text", "image"]
-      out: ["text"]
-      tools: false
-      context: 262144
-    metadata:
-      source_repo: "ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF"
-      repo_url: "https://huggingface.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF"
-      file_size_bytes: 10442827840
-      file_sha256: "63f29a2189a6b4cc31f81e093d3856ad293a5583114439f41ae1ed7af4093262"
-      has_checksum: true
-      vision: true
-      mmproj: "/home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.mmproj.gguf"
-      mmproj_filename: "Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.mmproj.gguf"
-      mtp: true
-      mtp_flag: "--spec-type draft-mtp"
-      pipeline_tag: "image-text-to-text"
-      mtp_tensor_sample:
-        - "blk.64.nextn.eh_proj.weight"
-        - "blk.64.nextn.shared_head_norm.weight"
-        - "blk.64.nextn.enorm.weight"
-    cmd: |
-      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.gguf
-      --n-gpu-layers 99 --spec-type draft-mtp --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 262144 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_XXS-mtp.mmproj.gguf --jinja
-      --host 0.0.0.0 --port ${PORT} --metrics
   "qwen3-8-27b-gsq-rco-iq3-s-mtp":
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
