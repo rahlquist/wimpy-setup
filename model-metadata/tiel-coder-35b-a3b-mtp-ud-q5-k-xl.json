@@ -1,0 +1,52 @@
+{
+  "alias": "tiel-coder-35b-a3b-mtp-ud-q5-k-xl",
+  "description": "Ornith-1.5-35B",
+  "downloaded_at": "2026-09-07T12:56:54+00:00",
+  "file_sha256": "83278fd1ea9923edb45cf6d373a8aa6475fb1f855795e085b9e6252bc53f24fa",
+  "file_size_bytes": 27491539488,
+  "filename": "Tiel-Coder-35B-A3B-MTP-UD-Q5_K_XL.gguf",
+  "gguf": {
+    "ambiguous_vision": false,
+    "architecture": "qwen35moe",
+    "attention_head_count": 16,
+    "attention_head_count_kv": 2,
+    "attention_key_length": 256,
+    "attention_value_length": 256,
+    "block_count": 41,
+    "context_length": 262144,
+    "description": "",
+    "embedded_projector": false,
+    "embedding_length": 2048,
+    "expert_count": 256,
+    "expert_used_count": 8,
+    "has_mtp": true,
+    "mtp_flag": "--spec-type draft-mtp",
+    "mtp_tensor_sample": [
+      "blk.40.nextn.eh_proj.weight",
+      "blk.40.nextn.enorm.weight",
+      "blk.40.nextn.hnorm.weight",
+      "blk.40.nextn.shared_head_norm.weight"
+    ],
+    "multimodal": false,
+    "name": "Ornith-1.5-35B",
+    "needs_external_projector": false
+  },
+  "has_checksum": true,
+  "has_mtp": true,
+  "mmproj_filename": "Tiel-Coder-35B-A3B-MTP-UD-Q5_K_XL.mmproj.gguf",
+  "mmproj_path": "/home/rahlquist/.cache/llama.cpp/Tiel-Coder-35B-A3B-MTP-UD-Q5_K_XL.mmproj.gguf",
+  "model_path": "/home/rahlquist/.cache/llama.cpp/Tiel-Coder-35B-A3B-MTP-UD-Q5_K_XL.gguf",
+  "mtp_flag": "--spec-type draft-mtp",
+  "mtp_tensor_sample": [
+    "blk.40.nextn.eh_proj.weight",
+    "blk.40.nextn.enorm.weight",
+    "blk.40.nextn.hnorm.weight"
+  ],
+  "n_cpu_moe": null,
+  "native_context": 262144,
+  "pipeline_tag": "image-text-to-text",
+  "repo_url": "https://huggingface.co/peculiar-ragdoll/Tiel-Coder-35B-A3B-GGUF-MTP",
+  "repository": "peculiar-ragdoll/Tiel-Coder-35B-A3B-GGUF-MTP",
+  "requested_context": 65536,
+  "vision": true
+}

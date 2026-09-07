@@ -81,9 +81,15 @@ def merge_tags(existing, incoming):
     (existing first, then any new from incoming)."""
     seen = set()
     out = []
+    incoming_tags = {t.strip() for t in (incoming or "").split(",") if t.strip()}
+    # MTP state is pipeline-authoritative. Replace the prior state rather than
+    # accumulating a stale red badge after a later successful smoke test.
+    replace_mtp = bool(incoming_tags & {"hf:mtp", "hf:mtp-broken"})
     for t in (existing or "").split(",") + (incoming or "").split(","):
         t = t.strip()
         if not t or t in seen:
+            continue
+        if replace_mtp and t in {"hf:mtp", "hf:mtp-broken"} and t not in incoming_tags:
             continue
         seen.add(t)
         out.append(t)

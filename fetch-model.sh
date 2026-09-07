@@ -159,6 +159,13 @@ MMPROJ_PATH=""
 VRAM_BEFORE_BYTES=0
 VRAM_PEAK_BYTES=0
 VRAM_AFTER_BYTES=0
+# MTP is a capability claim only when the MTP-enabled smoke completion
+# actually reports draft activity. A model can load and generate normally
+# while its speculative head is unusable, so preserve that distinction for
+# the llama-hugs UI (green hf:mtp vs red hf:mtp-broken).
+MTP_SMOKE_STATUS="not-applicable"
+MTP_DRAFT_TOKENS=0
+MTP_DRAFT_ACCEPTED=0
 read_gpu_vram_bytes() {
   local device="$1" value=0 file
   if [[ "$device" == ROCm* ]]; then
@@ -889,7 +896,7 @@ smoke_test(){
   VRAM_PEAK_BYTES="$VRAM_BEFORE_BYTES"
   info "smoke test: ctx=$EFFECTIVE_CTX ($CTX_MODE) device=$GPU_DEVICE cpu-moe=${CPU_MOE:-none}"
   env "${GPU_ENV_VAR}=${GPU_PIN_VALUE}" "$LLAMA_SERVER" --model "$MODEL_PATH" --n-gpu-layers 99 "${MOE_ARG[@]}" \
-    --device "$GPU_DEVICE" --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 "${CTX_ARG[@]}" "${NOMMAP_ARG[@]}" "${MMPROJ_ARG[@]}" --jinja \
+    --device "$GPU_DEVICE" --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 "${CTX_ARG[@]}" "${NOMMAP_ARG[@]}" "${MTP_ARG[@]}" "${MMPROJ_ARG[@]}" --jinja \
     --host 127.0.0.1 --port "$SMOKE_PORT" >"$SMOKE_LOG" 2>&1 &
   SERVER_PID=$!
   local i code ready=0
@@ -917,13 +924,10 @@ smoke_test(){
     err "smoke test indicates CPU-only fallback; refusing registration"
     return 1
   fi
-  # NOTE: reasoning models (e.g. nemotron_h_moe with reasoning_format=deepseek)
-  # may emit only reasoning tokens for the first N predictions, leaving
-  # `content` empty even though generation is healthy. Request enough tokens to
-  # clear the reasoning phase (n_predict>=64), and treat a probe as success when
-  # the server produced real generation — non-empty `content` OR non-empty
-  # `reasoning_content` OR a token-producing, non-error completion. HTTP errors,
-  # malformed JSON, empty bodies, and server errors remain failures.
+  # NOTE: reasoning models may emit only reasoning tokens; those still prove
+  # ordinary generation is healthy. For MTP models we additionally require
+  # draft activity, which is reported by llama.cpp as draft_n and
+  # draft_n_accepted in the completion response.
   VRAM_AFTER_BYTES="$(read_gpu_vram_bytes "$GPU_DEVICE")"
   local completion http_code
   http_code="$(curl -sS --max-time 60 -o /tmp/fetch-model.completion.$$ \
@@ -932,46 +936,56 @@ smoke_test(){
     -d '{"prompt":"Reply with exactly: OK","n_predict":64,"temperature":0,"cache_prompt":false}' 2>/dev/null || true)"
   completion="$(cat /tmp/fetch-model.completion.$$ 2>/dev/null || true)"
   rm -f -- /tmp/fetch-model.completion.$$
-  if ! python3 - "$completion" "$http_code" <<'PY'
+  set +e
+  python3 - "$completion" "$http_code" "${HAS_MTP:-}" > /tmp/fetch-model.mtp.$$ <<'PY'
 import json, sys
-raw, http_code = sys.argv[1], sys.argv[2]
-# HTTP-level failure: anything other than 2xx is a hard failure.
+raw, http_code, has_mtp = sys.argv[1], sys.argv[2], bool(sys.argv[3])
 try:
     if int(http_code) < 200 or int(http_code) >= 300:
         raise SystemExit(1)
 except ValueError:
     raise SystemExit(1)
-# Empty or malformed body is a failure.
 if not raw.strip():
     raise SystemExit(1)
 try:
     response = json.loads(raw)
 except (json.JSONDecodeError, ValueError):
     raise SystemExit(1)
-# Server-reported error field.
 if isinstance(response.get('error'), str) and response['error'].strip():
     raise SystemExit(1)
-# Success: the model produced real generation.
 content = response.get('content')
 reasoning = response.get('reasoning_content')
 tokens_predicted = response.get('tokens_predicted', response.get('tokens'))
-if isinstance(content, str) and content.strip():
-    raise SystemExit(0)
-if isinstance(reasoning, str) and reasoning.strip():
-    raise SystemExit(0)
-# Fall back to "tokens were generated", which proves the model ran end-to-end.
+ordinary_ok = ((isinstance(content, str) and content.strip()) or
+                (isinstance(reasoning, str) and reasoning.strip()))
 try:
-    if tokens_predicted and int(tokens_predicted) > 0:
-        raise SystemExit(0)
+    ordinary_ok = ordinary_ok or int(tokens_predicted or 0) > 0
 except (ValueError, TypeError):
     pass
-raise SystemExit(1)
+if not ordinary_ok:
+    raise SystemExit(1)
+usage = response.get('timings') or response.get('usage') or {}
+draft = usage.get('draft_n', usage.get('draft_tokens', 0)) or 0
+accepted = usage.get('draft_n_accepted', usage.get('draft_acc_tokens', 0)) or 0
+print(int(draft), int(accepted))
+if has_mtp and int(draft) <= 0:
+    raise SystemExit(2)
 PY
-  then
+  mtp_rc=$?
+  set -e
+  if (( mtp_rc == 2 )); then
+    MTP_SMOKE_STATUS="broken"
+    warn "MTP smoke test failed: ordinary generation worked, but no draft tokens were reported"
+  elif (( mtp_rc != 0 )); then
     err "smoke test health endpoint passed but completion probe failed"
     err "completion response: ${completion:0:400}"
     return 1
+  else
+    MTP_SMOKE_STATUS="working"
+    read -r MTP_DRAFT_TOKENS MTP_DRAFT_ACCEPTED < /tmp/fetch-model.mtp.$$
+    ok "MTP smoke activity: draft=$MTP_DRAFT_TOKENS accepted=$MTP_DRAFT_ACCEPTED"
   fi
+  rm -f -- /tmp/fetch-model.mtp.$$
   ok "loaded, generated, and healthy at ctx=$EFFECTIVE_CTX on $GPU_DEVICE"
   if [[ -n "$CPU_MOE" ]]; then info "intentional MoE expert CPU placement: first $CPU_MOE blocks"; fi
   cleanup; SERVER_PID=""; rm -f -- "$SMOKE_LOG"; SMOKE_LOG=""
@@ -1178,11 +1192,11 @@ if (( ! PRIMARY_ALREADY )); then
   python3 - "$HUGS_PAYLOAD" "$NAME" "$MODEL_PATH" "$FILE" "$REPO_ID" "$GPU_DEVICE" \
     "$EFFECTIVE_CTX" "$CPU_MOE" "$MMPROJ_PATH" "$METADATA_JSON" "$REPO_META_JSON" \
     "$REPO_SHA" "$REPO_HAS_SHA" "$CTX_MODE" "$DO_SMOKE" "$SRC_CLASS" \
-    "$VRAM_BEFORE_BYTES" "$VRAM_PEAK_BYTES" "$VRAM_AFTER_BYTES" <<'PY' || HUGS_BUILD_RC=$?
+    "$VRAM_BEFORE_BYTES" "$VRAM_PEAK_BYTES" "$VRAM_AFTER_BYTES" "$MTP_SMOKE_STATUS" "$MTP_DRAFT_TOKENS" "$MTP_DRAFT_ACCEPTED" <<'PY' || HUGS_BUILD_RC=$?
 import json, os, sys
 out, name, model_path, file_name, repo_id, gpu_device, eff_ctx, cpu_moe, \
     mmproj_path, metadata_raw, repo_meta_raw, repo_sha, repo_has_sha, \
-    ctx_mode, do_smoke, src_class, vram_before, vram_peak, vram_after = sys.argv[1:]
+    ctx_mode, do_smoke, src_class, vram_before, vram_peak, vram_after, mtp_status, mtp_draft, mtp_accepted = sys.argv[1:]
 metadata = json.loads(metadata_raw or '{}')
 repo_meta = json.loads(repo_meta_raw or '{}')
 model_id = 'hugs-' + name
@@ -1232,7 +1246,7 @@ if do_smoke == '1':
         'gpu_vram_after_bytes': int(vram_after or 0),
         'success': 1,
         'error': '',
-        'notes': f'fetch-model.sh smoke test: ctx={eff_ctx} ({ctx_mode}), device={gpu_device}, cpu-moe={cpu_moe or "none"}',
+        'notes': f'fetch-model.sh smoke test: ctx={eff_ctx} ({ctx_mode}), device={gpu_device}, cpu-moe={cpu_moe or "none"}, mtp={mtp_status}, draft={mtp_draft}, accepted={mtp_accepted}',
     }
 # Compute hf: tags from authoritative GGUF inspection (pipeline knows these
 # for certain; the fork's HF scanner may miss them for repos without Hub
@@ -1242,7 +1256,11 @@ hf_tags = ['hf:checked']
 if vision:
     hf_tags.append('hf:vision')
 if metadata.get('has_mtp'):
+    # Keep the MTP-present signal and add an explicit state tag. The UI can
+    # render hf:mtp-broken red while retaining the ordinary hf:mtp identity.
     hf_tags.append('hf:mtp')
+    if mtp_status == 'broken':
+        hf_tags.append('hf:mtp-broken')
 hf_tags_str = ', '.join(hf_tags)
 # Hermes handoff line for follow-up HF research when MTP is present.
 mtp_handoff = ''

@@ -72,6 +72,7 @@ groups:
     swap: true          # one model at a time on the single R9700
     exclusive: false    # do NOT unload the nvidia group when an AMD model loads
     members:
+      - "tiel-coder-35b-a3b-mtp-ud-q5-k-xl"
       - "qwen3-8-27b-gsq-rco-iq3-s-mtp"
       - "whittle-moe-27b-a18b-v2-2-1-q3-k-m"
       - "whittle-moe-27b-a18b-v2-2-1-q8-0"
@@ -168,6 +169,35 @@ groups:
       - "ling-mini-2-q6-cuda"
 
 models:
+  "tiel-coder-35b-a3b-mtp-ud-q5-k-xl":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    name: "Tiel-Coder-35B-A3B-GGUF-MTP"
+    capabilities:
+      in: ["text", "image"]
+      out: ["text"]
+      tools: false
+      context: 65536
+    metadata:
+      source_repo: "peculiar-ragdoll/Tiel-Coder-35B-A3B-GGUF-MTP"
+      repo_url: "https://huggingface.co/peculiar-ragdoll/Tiel-Coder-35B-A3B-GGUF-MTP"
+      file_size_bytes: 27491539488
+      file_sha256: "83278fd1ea9923edb45cf6d373a8aa6475fb1f855795e085b9e6252bc53f24fa"
+      has_checksum: true
+      vision: true
+      mmproj: "/home/rahlquist/.cache/llama.cpp/Tiel-Coder-35B-A3B-MTP-UD-Q5_K_XL.mmproj.gguf"
+      mmproj_filename: "Tiel-Coder-35B-A3B-MTP-UD-Q5_K_XL.mmproj.gguf"
+      mtp: true
+      mtp_flag: "--spec-type draft-mtp"
+      pipeline_tag: "image-text-to-text"
+      mtp_tensor_sample:
+        - "blk.40.nextn.eh_proj.weight"
+        - "blk.40.nextn.enorm.weight"
+        - "blk.40.nextn.hnorm.weight"
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Tiel-Coder-35B-A3B-MTP-UD-Q5_K_XL.gguf
+      --n-gpu-layers 99 --no-mmap --spec-type draft-mtp --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Tiel-Coder-35B-A3B-MTP-UD-Q5_K_XL.mmproj.gguf --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
   "qwen3-8-27b-gsq-rco-iq3-s-mtp-cuda":
     ttl: 300
     env: ["CUDA_VISIBLE_DEVICES=0"]
