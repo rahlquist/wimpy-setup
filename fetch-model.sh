@@ -1322,6 +1322,7 @@ PY
     else
       warn "canonical Llama Hugs persistence failed (exit $HUGS_PERSIST_RC); registration itself is complete — config and sidecar remain the source of truth. Persistence failed."
     fi
+    set -e
   fi
 fi
 
@@ -1387,19 +1388,6 @@ printf 'Model: %s bytes, configured context: %s\n' "$(stat -c '%s' "$MODEL_PATH"
 printf 'Warnings: %s\n' "${WARNINGS:-none}"
 
 deploy_live_config
-
-# End-of-import notification for follow-up research.
-# When the GGUF has MTP tensors but the repo may lack Hub signals, surface a
-# Hermes handoff line so the operator can investigate HF directly.
-if [[ -n "$mtp_handoff" ]]; then
-  printf '\n'
-  printf '  \033[33m[!] MTP detected in GGUF; the fork HF scanner may miss it for repos without Hub signals.\033[0m\n'
-  printf '  \033[33m    Review: curl -s http://localhost:8080/api/hugs/meta/hugs-%s\033[0m\n' "$NAME"
-  printf '  \033[33m    Or hand off to Hermes on HF:\033[0m\n'
-  printf '\n'
-  printf '  \033[36m%s\033[0m\n' "$mtp_handoff"
-  printf '\n'
-fi
 
 info 'repository changes are local only; review, commit, and push manually if desired.'
 
