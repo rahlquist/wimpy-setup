@@ -1695,6 +1695,35 @@ models:
         --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0
         --host 0.0.0.0 --port ${PORT} --jinja --metrics
 
+  "qwen38-27b-efficientthink-q4":
+    ttl: 300
+    env:
+    - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
+    name: Qwen3.8-27B-EfficientThink-Q4-LynnStyle
+    capabilities:
+      in:
+      - text
+      - image
+      out:
+      - text
+      tools: true
+      context: 32768
+    metadata:
+      source_repo: nerkyor/Qwen3.8-27B-EfficientThink-Uncensored-K3-Opus5-Grok4.6-GPT5.6Sol-SFT-SimPO-DFlash2-GGUF
+      repo_url: https://huggingface.co/nerkyor/Qwen3.8-27B-EfficientThink-Uncensored-K3-Opus5-Grok4.6-GPT5.6Sol-SFT-SimPO-DFlash2-GGUF
+      file_size_bytes: 19351954688
+      file_sha256: 80830561b0a1bba7c7eb3d59919e32339e803564b0b158e96c503b1e78e7b2be
+      has_checksum: true
+      vision: true
+      mmproj: /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/mmproj-Qwen3.8-27B-Q6_K.gguf
+      mmproj_filename: mmproj-Qwen3.8-27B-Q6_K.gguf
+      dflash: false
+      pipeline_tag: image-text-to-text
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/Qwen3.8-27B-EfficientThink-SimPO-Q4-LynnStyle.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 32768 --mmproj /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/mmproj-Qwen3.8-27B-Q6_K.gguf --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
+
   "qwen3.5-9b-q4":
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
