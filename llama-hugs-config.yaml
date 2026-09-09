@@ -1753,7 +1753,7 @@ models:
       pipeline_tag: image-text-to-text
     cmd: |
       /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/Qwen3.8-27B-EfficientThink-SimPO-Q4-LynnStyle.gguf
-      --n-gpu-layers 99 --spec-type draft-mtp --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 32768 --mmproj /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/mmproj-Qwen3.8-27B-Q6_K.gguf --jinja
+      --model-draft /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/mtp-Qwen3.8-27B-Q4_0.gguf --n-gpu-layers 99 --spec-type draft-mtp --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 32768 --mmproj /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/mmproj-Qwen3.8-27B-Q6_K.gguf --jinja
       --host 0.0.0.0 --port ${PORT} --metrics
 
   "qwen3.5-9b-q4":
