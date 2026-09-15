@@ -172,6 +172,57 @@ groups:
       - "qwen3-8-27b-ktopt-cuda"
 
 models:
+  #
+  # ═══════════════════════════════════════════════════════════════════════
+  # DOCKER RUNTIME MEMBER — alternate inference engine via container
+  # ═══════════════════════════════════════════════════════════════════════
+  #
+  # wiklif/Qwen3.8-27B-KTopt-GGUF  (10.31 GB, ~3.06 bits/weight)
+  #   KT quantization uses iq2_kt/iq3_kt/iq4_kss/iq4_ks types that ONLY
+  #   load in the lrozewicz/kt-llama.cpp fork. They will NOT load in
+  #   mainline llama-server, LM Studio, or Ollama. So this member must
+  #   run in the fork — shipped as a CUDA-only Docker image.
+  #
+  # ── Why a docker member ──────────────────────────────────────────────
+  # llama-hugs runs each member by exec'ing the string in `cmd` (Go's
+  # exec.Command). To swap between inference *runtimes*, not just models,
+  # set `cmd` to the absolute path of a container runtime followed by
+  # the fork's image. llama-hugs treats it as opaque — it just waits
+  # for the upstream to answer :$PORT/health.
+  #
+  # ── Container self-management ────────────────────────────────────────
+  # The kt-llama-cpp entrypoint (kt-entrypoint.sh) handles:
+  #   1. VRAM profiling — reads nvidia-smi free memory, picks a context
+  #      size: 32k/64k/96k/160k/200k/262k. 200k on a clear 5060 Ti.
+  #   2. Optional EoRA adapter + DFlash2 speculative drafter per profile.
+  #   3. VBR KV cache (compressed) — critical for long-context fits.
+  # Because --rm is set, the container auto-removes on exit — no
+  # lingering containers after llama-hugs unloads it.
+  #
+  # ── Wiring contract (everything below was empirically verified) ────
+  #   1. cmd MUST be an absolute path. bare `docker` fails with
+  #      `upstream command exited prematurely` (Go exec.Command PATH).
+  #   2. cmd MUST be a single line. yaml block scalar `cmd: |` collapses
+  #      the literal `\n`s inside and the entrypoint receives garbage.
+  #   3. ${PORT} works in -p too — the router substitutes it everywhere.
+  #   4. Do NOT declare `aliases:` equal to the model id. gen-config.py
+  #      auto-registers model_id sans `hugs-` prefix as an alias; a
+  #      duplicate causes `duplicate alias ... found` and the entry is
+  #      refused (the real root cause, not my explicit alias).
+  #   5. Models dir mounted ro — the entrypoint never writes to it.
+  #
+  # ── Operational gotchas ─────────────────────────────────────────────
+  #   - The autodeploy helper (install-llama-hugs-autodeploy.sh) targets
+  #     /opt/llama-hugs/config.yaml but the systemd service reads
+  #     /etc/llama-hugs/config.yaml. The paths drifted apart — so the
+  #     helper's post-deploy health check always fails and rolls back,
+  #     even though the generated config is valid. Until that's fixed,
+  #     deploy with the manual env-overridden gen-config.py to /etc.
+  #   - KT types are CUDA-only for speed. The R9700 cannot run this
+  #     regardless of VRAM — it stays in nvidia-5060ti group.
+  #   - Source config (~/wimpy-setup/llama-hugs-config.yaml) is the
+  #     operational source of truth; deployed copy is generated.
+  #
   "qwen3-8-27b-ktopt-cuda":
     ttl: 300
     env:
