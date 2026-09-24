@@ -18,7 +18,7 @@
 #   CPU spin at load_model, /health never answers) under host memory pressure.
 #   Proven 2026-09-23: identical cmd + --no-mmap loads in 10.8s.
 #
-healthCheckTimeout: 180
+healthCheckTimeout:healthCheckTimeout: 180
 groups:
   amd-r9700:
     swap: true
@@ -40,10 +40,8 @@ groups:
     - qwen3-8-27b-crack-iq2-m
     - qwen3-8-27b-crack-iq3-m
     - qwen3-8-27b-crack-q8-0
-    - glm-4-7-flash-uncen-hrt-neo-code-max-imat-d-au-q6-k
     - dagger-qwen3-6-27b-q6-k
     - nail-qwen3-6-35b-a3b-ud-q5-k-xl
-    - qwen3-6-35b-a3b-uncensored-hauhaucs-aggressive-q5-k-p
     - dirk-qwen3-8-27b-ud-q6-k-xl
     - dirk-qwen3-8-27b-ud-q5-k-xl
     - qwen3-8-27b-q3-k-s
@@ -53,12 +51,10 @@ groups:
     - qwen3-8-27b-ud-q5-k-xl
     - nail-qwen3-6-35b-a3b-ud-q4-k-xl
     - muse-glimmer-30b-ud-q2-k-xl
-    - ornith-1-0-35b-ud-q4-k-xl
     - qwen3-30b-a3b-instruct-2507-ud-q5-k-xl
     - qwen-qwen3-30b-a3b-instruct-2507-q6-k-l
     - qwen3-coder-30b-a3b-instruct-q5-k-m
     - deepseek-coder-v2-lite-instruct-q4-k-m
-    - ornith-1-0-9b-q8-0
     - gemma4-coding-q6-k
     - qwen2.5-coder-14b
     - mistral-7b
@@ -77,12 +73,10 @@ groups:
     - ling-mini-2-q5
     - ling-mini-2-q6
     - qwen3-30b-a3b
-    - gemma-4-26b-moe
     - agents-a1-q4
     - janus-pro-7b
     - phi-4-q8
     - muse-glimmer-30b-ud-q3-k-xl
-    - muse-glimmer-30b-ud-q4-k-xl
     - qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-iq3-m
     - qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-iq2-m
     - muse-glimmer-30b-ud-q6-k-xl
@@ -90,27 +84,16 @@ groups:
     - flux2-klein-9b-uncensored-f16
     - qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-q4-k-s
     - qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-low-mtp-q6-k
-    - qwen38-27b-efficientthink-q4
-    - qwen38-27b-efficientthink-q4-mtp
   nvidia-5060ti:
     swap: true
     exclusive: false
     members:
-    - qwen3-8-27b-orcarouter-gsq-rco-iq3-xxs-v2-0-cuda
-    - qwen3-8-27b-gsq-rco-iq3-s-mtp-cuda
     - llama-3-2-3b-instruct-q4-k-m-cuda
-    - prompt-enhancer-uncensored-q8-0-cuda
-    - qwen3-8-27b-ud-iq2-xxs-cuda
-    - qwen3-8-27b-crack-iq2-m-cuda
     - gemma-4-e4b-uncensored-hauhaucs-aggressive-q8-k-p-cuda
-    - qwen3-8-27b-ud-iq2-m-cuda
     - muse-glimmer-30b-ud-q2-k-xl-cuda
     - qwen2.5-coder-14b-cuda
     - gemma-3-12b-cuda
     - qwen3.5-9b-q6-cuda
-    - deepseek-coder-v2-lite-instruct-q4-k-m-cuda
-    - ornith-1-0-9b-q8-0-cuda
-    - gemma4-coding-q6-k-cuda
     - mistral-7b-cuda
     - llama3.2-3b-cuda
     - granite-4.1-8b-cuda
@@ -127,26 +110,6 @@ groups:
     - ling-mini-2-q6-cuda
     - qwen3-8-27b-ktopt-cuda
 models:
-  #
-  # ═══════════════════════════════════════════════════════════════════════
-  # DOCKER RUNTIME MEMBER — alternate inference engine via container
-  # ═══════════════════════════════════════════════════════════════════════
-  # KT quantization (iq2_kt/iq3_kt/iq4_kss/iq4_ks) ONLY loads in the
-  # lrozewicz/kt-llama.cpp fork — NOT mainline llama-server. Shipped as a
-  # CUDA-only Docker image.
-  # Contract (empirically verified):
-  #   1. cmd MUST be an absolute path (bare `docker` fails: Go exec PATH).
-  #   2. cmd MUST be a single line (block-scalar \n literals break it).
-  #   3. ${PORT} works in -p too — the router substitutes it everywhere.
-  #   4. Do NOT declare aliases: equal to the model id (duplicate alias
-  #      refusal — gen-config.py auto-registers it).
-  #   5. Models dir mounted ro — the entrypoint never writes to it.
-  #   6. --rm: container auto-removes on exit when llama-hugs unloads it.
-  # Gotchas: autodeploy helper targets /opt/.../config.yaml while systemd
-  # reads /etc/llama-hugs/config.yaml (mis-wired, always rolls back) —
-  # deploy manually via env-overridden gen-config.py to /etc. KT types are
-  # CUDA-only; stays in nvidia-5060ti group.
-  #
   qwen3-8-27b-ktopt-cuda:
     ttl: 300
     env:
@@ -164,35 +127,6 @@ models:
       file_sha256: f23aed2c97db0b5696311d21a218a9a63e1fe8aadd9c2077a49518c19703cade
       runtime: kt-llama-cpp (docker ghcr.io/lrozewicz/kt-llama-cpp:cuda) — NOT mainline llama.cpp
     cmd: /usr/bin/docker run --rm --gpus all -v /home/rahlquist/kt-models:/models:ro -e PORT=${PORT} -e PROFILE=auto -e GPU_INDEX=0 -e CUDA_VISIBLE_DEVICES=0 -e ALIAS=qwen3-8-27b-ktopt-cuda -p ${PORT}:${PORT} ghcr.io/lrozewicz/kt-llama-cpp:cuda
-  qwen3-8-27b-orcarouter-gsq-rco-iq3-xxs-v2-0-cuda:
-    ttl: 300
-    env:
-    - CUDA_VISIBLE_DEVICES=0
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      tools: true
-    metadata:
-      source_repo: RentedNoodle/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-Uncensored
-      repo_url: https://huggingface.co/RentedNoodle/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-Uncensored
-      file_size_bytes: 10466439424
-      file_sha256: 41ad7dfb3f4397d626408a96e88a46c5964e88bd6c4240c191e1131af92ea8cd
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.0.mmproj.gguf
-      mmproj_filename: Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.0.mmproj.gguf
-      mtp: true
-      mtp_flag: --spec-type draft-mtp
-      pipeline_tag: image-text-to-text
-    cmd: '/opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.0.gguf
-
-      --n-gpu-layers 99 --spec-type draft-mtp --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
-
-      --host 0.0.0.0 --port ${PORT} --metrics
-
-      '
   qwen3-8-27b-orcarouter-gsq-rco-iq3-xxs-v2-0:
     ttl: 300
     env:
@@ -254,43 +188,6 @@ models:
     cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Tiel-Coder-35B-A3B-MTP-UD-Q5_K_XL.gguf
 
       --n-gpu-layers 99 --no-mmap --spec-type draft-mtp --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Tiel-Coder-35B-A3B-MTP-UD-Q5_K_XL.mmproj.gguf --jinja
-
-      --host 0.0.0.0 --port ${PORT} --metrics
-
-      '
-  qwen3-8-27b-gsq-rco-iq3-s-mtp-cuda:
-    ttl: 300
-    env:
-    - CUDA_VISIBLE_DEVICES=0
-    name: Qwen3.8-27B-GSQ-RCO-GGUF
-    description: GSQ-RCO non-uniform mixed-precision GGUF (Deep Algorithms and Systems Lab, ISTA)
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      tools: true
-      context: 65536
-    metadata:
-      source_repo: ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF
-      repo_url: https://huggingface.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF
-      file_size_bytes: 12120016960
-      file_sha256: 58fd826723939933dc86f45b7fe04545cbc2de1c70f6fe2cdd3858c87a98c12f
-      has_checksum: true
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.mmproj.gguf
-      mmproj_filename: Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.mmproj.gguf
-      mtp: true
-      mtp_flag: --spec-type draft-mtp
-      pipeline_tag: image-text-to-text
-      mtp_tensor_sample:
-      - blk.64.nextn.eh_proj.weight
-      - blk.64.nextn.shared_head_norm.weight
-      - blk.64.nextn.enorm.weight
-    cmd: '/opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf
-
-      --n-gpu-layers 99 --spec-type draft-mtp --device CUDA0 --flash-attn on --ctx-size 65536 --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -456,34 +353,6 @@ models:
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
     cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ4_XS.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ4_XS.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
-  prompt-enhancer-uncensored-q8-0-cuda:
-    ttl: 300
-    env:
-    - CUDA_VISIBLE_DEVICES=0
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-    metadata:
-      source_repo: SulphurAI/Sulphur-2-base
-      repo_url: https://huggingface.co/SulphurAI/Sulphur-2-base
-      file_size_bytes: None
-      file_sha256: ''
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/prompt_enhancer_uncensored-q8_0.mmproj.gguf
-      mmproj_filename: prompt_enhancer_uncensored-q8_0.mmproj.gguf
-      mtp: true
-      mtp_flag: --spec-type draft-mtp
-      pipeline_tag: text-to-video
-    cmd: '/opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/prompt_enhancer_uncensored-q8_0.gguf
-
-      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
-
-      --host 0.0.0.0 --port ${PORT} --metrics
-
-      '
   prompt-enhancer-uncensored-q8-0:
     ttl: 300
     env:
@@ -604,35 +473,6 @@ models:
       mtp_flag: null
       pipeline_tag: image-text-to-text
     cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q4_K_M.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q4_K_M.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
-  qwen3-8-27b-ud-iq2-xxs-cuda:
-    ttl: 300
-    env:
-    - CUDA_VISIBLE_DEVICES=0
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      tools: true
-    metadata:
-      source_repo: unsloth/Qwen3.8-27B-GGUF
-      repo_url: https://huggingface.co/unsloth/Qwen3.8-27B-GGUF
-      file_size_bytes: 9010048064
-      file_sha256: 8d1b37297d6cf98303cd396896f35e01089ddcc904053a9c6997f7a1c35b8524
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_XXS.mmproj.gguf
-      mmproj_filename: Qwen3.8-27B-UD-IQ2_XXS.mmproj.gguf
-      mtp: true
-      mtp_flag: --spec-type draft-mtp
-      pipeline_tag: ''
-    cmd: '/opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_XXS.gguf
-
-      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
-
-      --host 0.0.0.0 --port ${PORT} --metrics
-
-      '
   qwen3-8-27b-ud-iq2-xxs:
     ttl: 300
     env:
@@ -697,35 +537,6 @@ models:
     cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q6_K.gguf
 
       --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q6_K.mmproj.gguf --jinja
-
-      --host 0.0.0.0 --port ${PORT} --metrics
-
-      '
-  qwen3-8-27b-crack-iq2-m-cuda:
-    ttl: 300
-    env:
-    - CUDA_VISIBLE_DEVICES=0
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      tools: true
-    metadata:
-      source_repo: dealignai/Qwen3.8-27B-CRACK-GGUF
-      repo_url: https://huggingface.co/dealignai/Qwen3.8-27B-CRACK-GGUF
-      file_size_bytes: 10473424512
-      file_sha256: 476cd94874b9b51a33c00a5340ba10087886ea7bc4cc96ab61495e3f5062125d
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-CRACK-IQ2_M.mmproj.gguf
-      mmproj_filename: Qwen3.8-27B-CRACK-IQ2_M.mmproj.gguf
-      mtp: true
-      mtp_flag: --spec-type draft-mtp
-      pipeline_tag: image-text-to-text
-    cmd: '/opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-CRACK-IQ2_M.gguf
-
-      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -826,37 +637,6 @@ models:
       --host 0.0.0.0 --port ${PORT} --metrics
 
       '
-  glm-4-7-flash-uncen-hrt-neo-code-max-imat-d-au-q6-k:
-    ttl: 300
-    env:
-    - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
-    name: GLM 4.7 Flash Heretic
-    capabilities:
-      in:
-      - text
-      out:
-      - text
-      tools: true
-      context: 65536
-    metadata:
-      source_repo: ''
-      repo_url: ''
-      file_size_bytes: null
-      file_sha256: null
-      has_checksum: false
-      vision: false
-      mmproj: null
-      mmproj_filename: null
-      mtp: false
-      mtp_flag: null
-      pipeline_tag: null
-    cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/GLM-4.7-Flash-Uncen-Hrt-NEO-CODE-MAX-imat-D_AU-Q6_K.gguf
-
-      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
-
-      --host 0.0.0.0 --port ${PORT} --metrics
-
-      '
   dagger-qwen3-6-27b-q6-k:
     ttl: 300
     env:
@@ -921,38 +701,6 @@ models:
     cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Nail-Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf
 
       --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Nail-Qwen3.6-35B-A3B-UD-Q5_K_XL.mmproj.gguf --jinja
-
-      --host 0.0.0.0 --port ${PORT} --metrics
-
-      '
-  qwen3-6-35b-a3b-uncensored-hauhaucs-aggressive-q5-k-p:
-    ttl: 300
-    env:
-    - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
-    name: Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      tools: true
-      context: 65536
-    metadata:
-      source_repo: HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive
-      repo_url: https://huggingface.co/HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive
-      file_size_bytes: 28027394176
-      file_sha256: 2a3b72ab458f99028b65cce7ef6a9d6e4c79aa4318296d1b01bac9923d6a3b12
-      has_checksum: true
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q5_K_P.mmproj.gguf
-      mmproj_filename: Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q5_K_P.mmproj.gguf
-      mtp: false
-      mtp_flag: null
-      pipeline_tag: image-text-to-text
-    cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q5_K_P.gguf
-
-      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q5_K_P.mmproj.gguf --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -1198,32 +946,6 @@ models:
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
     cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ3_M.gguf\n --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ3_M.mmproj.gguf\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
-  muse-glimmer-30b-ud-q4-k-xl:
-    ttl: 300
-    env:
-    - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
-    name: Muse-Glimmer-30B
-    description: Muse-Glimmer-30B
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      context: 65536
-    metadata:
-      source_repo: unsloth/Muse-Glimmer-30B-GGUF
-      repo_url: https://huggingface.co/unsloth/Muse-Glimmer-30B-GGUF
-      file_size_bytes: 15878222368
-      file_sha256: 82bece304887a313ece08400bc030f6066c7bff5b906b0cd40308ec8a409fd38
-      has_checksum: true
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q4_K_XL.mmproj.gguf
-      mmproj_filename: Muse-Glimmer-30B-UD-Q4_K_XL.mmproj.gguf
-      mtp: false
-      mtp_flag: null
-      pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q4_K_XL.gguf\n --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q4_K_XL.mmproj.gguf\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   muse-glimmer-30b-ud-q3-k-xl:
     ttl: 300
     env:
@@ -1390,32 +1112,6 @@ models:
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
     cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-LOW-MTP-Q6_K.gguf\n --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-LOW-MTP-Q6_K.mmproj.gguf\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
-  ornith-1-0-35b-ud-q4-k-xl:
-    ttl: 300
-    env:
-    - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
-    name: Ornith-1.0-9B
-    description: Ornith-1.0-9B
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      context: 65536
-    metadata:
-      source_repo: unsloth/Ornith-1.0-35B-GGUF
-      repo_url: https://huggingface.co/unsloth/Ornith-1.0-35B-GGUF
-      file_size_bytes: 22324804000
-      file_sha256: 67081ae4a1a291bd6c72834094ea056332cb3cb5fa15e88536ec7f233a475b71
-      has_checksum: true
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/Ornith-1.0-35B-UD-Q4_K_XL.mmproj.gguf
-      mmproj_filename: Ornith-1.0-35B-UD-Q4_K_XL.mmproj.gguf
-      mtp: false
-      mtp_flag: null
-      pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Ornith-1.0-35B-UD-Q4_K_XL.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3-30b-a3b-instruct-2507-ud-q5-k-xl:
     ttl: 300
     env:
@@ -1518,30 +1214,6 @@ models:
       mtp_flag: null
       pipeline_tag: text-generation
     cmd: "/usr/local/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf\n --no-mmap\n-ngl 99 -dev ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja\n--host 127.0.0.1 --port ${PORT}\n"
-  ornith-1-0-9b-q8-0:
-    ttl: 300
-    env:
-    - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
-    name: Ornith 1.0 9B
-    capabilities:
-      in:
-      - text
-      out:
-      - text
-      context: 65536
-    metadata:
-      source_repo: unsloth/Ornith-1.0-9B-GGUF
-      repo_url: https://huggingface.co/unsloth/Ornith-1.0-9B-GGUF
-      file_size_bytes: 9527501920
-      file_sha256: 4d469c15b1ef0e494c4a756acc8b2eec9eabcc6572986e9cb89efa87444c2d72
-      has_checksum: true
-      vision: false
-      mmproj: null
-      mmproj_filename: null
-      mtp: false
-      mtp_flag: null
-      pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/ornith-1.0-9b-Q8_0.gguf\n --no-mmap\n-ngl 99 -dev ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja\n--chat-template-file /etc/llama-hugs/templates/ornith.jinja\n--host 127.0.0.1 --port ${PORT}\n"
   gemma4-coding-q6-k:
     ttl: 300
     env:
@@ -1810,57 +1482,6 @@ models:
       mtp_flag: null
       pipeline_tag: text-generation
     cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/llama-2-7b-chat.Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
-  qwen38-27b-efficientthink-q4:
-    ttl: 300
-    env:
-    - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
-    name: Qwen3.8-27B-EfficientThink-Q4-LynnStyle
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      context: 65536
-    metadata:
-      source_repo: nerkyor/Qwen3.8-27B-EfficientThink-Uncensored-K3-Opus5-Grok4.6-GPT5.6Sol-SFT-SimPO-DFlash2-GGUF
-      repo_url: https://huggingface.co/nerkyor/Qwen3.8-27B-EfficientThink-Uncensored-K3-Opus5-Grok4.6-GPT5.6Sol-SFT-SimPO-DFlash2-GGUF
-      file_size_bytes: 19351954688
-      file_sha256: 80830561b0a1bba7c7eb3d59919e32339e803564b0b158e96c503b1e78e7b2be
-      has_checksum: true
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/mmproj-Qwen3.8-27B-Q6_K.gguf
-      mmproj_filename: mmproj-Qwen3.8-27B-Q6_K.gguf
-      dflash: false
-      pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/Qwen3.8-27B-EfficientThink-SimPO-Q4-LynnStyle.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/mmproj-Qwen3.8-27B-Q6_K.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
-  qwen38-27b-efficientthink-q4-mtp:
-    ttl: 300
-    env:
-    - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
-    name: Qwen3.8-27B-EfficientThink-Q4-MTP
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      context: 65536
-    metadata:
-      source_repo: nerkyor/Qwen3.8-27B-EfficientThink-Uncensored-K3-Opus5-Grok4.6-GPT5.6Sol-SFT-SimPO-DFlash2-GGUF
-      repo_url: https://huggingface.co/nerkyor/Qwen3.8-27B-EfficientThink-Uncensored-K3-Opus5-Grok4.6-GPT5.6Sol-SFT-SimPO-DFlash2-GGUF
-      file_size_bytes: 19351954688
-      file_sha256: 80830561b0a1bba7c7eb3d59919e32339e803564b0b158e96c503b1e78e7b2be
-      has_checksum: true
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/mmproj-Qwen3.8-27B-Q6_K.gguf
-      mmproj_filename: mmproj-Qwen3.8-27B-Q6_K.gguf
-      mtp: true
-      mtp_flag: --spec-type draft-mtp
-      mtp_filename: mtp-Qwen3.8-27B-Q4_0.gguf
-      mtp_file_sha256: 051a1764cff8c4f3ee6ae8b00593a0364c7539c67fa50ffc58f3f96509fca38e
-      pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/Qwen3.8-27B-EfficientThink-SimPO-Q4-LynnStyle.gguf\n --no-mmap\n--model-draft /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/mtp-Qwen3.8-27B-Q4_0.gguf --n-gpu-layers 99 --spec-type draft-mtp --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/qwen38-efficientthink-q4/mmproj-Qwen3.8-27B-Q6_K.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3.5-9b-q4:
     ttl: 300
     env:
@@ -2039,31 +1660,6 @@ models:
       mtp_flag: null
       pipeline_tag: text-generation
     cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen3-30B-A3B-Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0\n  --batch-size 2048 --ubatch-size 512\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
-  gemma-4-26b-moe:
-    ttl: 300
-    env:
-    - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
-    name: gemma-4-26B-A4B-it-GGUF
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      context: 65536
-    metadata:
-      source_repo: unsloth/gemma-4-26B-A4B-it-GGUF
-      repo_url: https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF
-      file_size_bytes: 16947541728
-      file_sha256: f2c28b3dc4776931ac6f879e11f203dec637ea0f14267a86ec8f6165f63f293f
-      has_checksum: true
-      vision: true
-      mmproj: null
-      mmproj_filename: null
-      mtp: false
-      mtp_flag: null
-      pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/google_gemma-4-26B-A4B-it-Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0\n  --batch-size 2048 --ubatch-size 512\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   ovisocr2-f16-cuda:
     ttl: 300
     env:
@@ -2189,98 +1785,6 @@ models:
       --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
-
-      '
-  deepseek-coder-v2-lite-instruct-q4-k-m-cuda:
-    ttl: 300
-    env:
-    - CUDA_VISIBLE_DEVICES=0
-    name: DeepSeek-Coder-V2-Lite-Instruct
-    capabilities:
-      in:
-      - text
-      out:
-      - text
-      context: 65536
-    metadata:
-      source_repo: bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF
-      repo_url: https://huggingface.co/bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF
-      file_size_bytes: 10364416768
-      file_sha256: 603bd3f8a0281d16571da7c08bd661ee17ff0d1be6fcbd1b42242da257ef0bb8
-      has_checksum: true
-      vision: false
-      mmproj: null
-      mmproj_filename: null
-      mtp: false
-      mtp_flag: null
-      pipeline_tag: text-generation
-    cmd: '/opt/llama-cuda/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf
-
-      -ngl 99 -dev CUDA0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja
-
-      --host 127.0.0.1 --port ${PORT}
-
-      '
-  ornith-1-0-9b-q8-0-cuda:
-    ttl: 300
-    env:
-    - CUDA_VISIBLE_DEVICES=0
-    name: Ornith 1.0 9B
-    capabilities:
-      in:
-      - text
-      out:
-      - text
-      context: 65536
-    metadata:
-      source_repo: unsloth/Ornith-1.0-9B-GGUF
-      repo_url: https://huggingface.co/unsloth/Ornith-1.0-9B-GGUF
-      file_size_bytes: 9527501920
-      file_sha256: 4d469c15b1ef0e494c4a756acc8b2eec9eabcc6572986e9cb89efa87444c2d72
-      has_checksum: true
-      vision: false
-      mmproj: null
-      mmproj_filename: null
-      mtp: false
-      mtp_flag: null
-      pipeline_tag: text-generation
-    cmd: '/opt/llama-cuda/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/ornith-1.0-9b-Q8_0.gguf
-
-      -ngl 99 -dev CUDA0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja
-
-      --chat-template-file /etc/llama-hugs/templates/ornith.jinja
-
-      --host 127.0.0.1 --port ${PORT}
-
-      '
-  gemma4-coding-q6-k-cuda:
-    ttl: 300
-    env:
-    - CUDA_VISIBLE_DEVICES=0
-    name: gemma4-coding
-    capabilities:
-      in:
-      - text
-      out:
-      - text
-      context: 65536
-    metadata:
-      source_repo: null
-      repo_url: null
-      file_size_bytes: 9786020384
-      file_sha256: null
-      has_checksum: false
-      vision: false
-      mmproj: null
-      mmproj_filename: null
-      mtp: false
-      mtp_flag: null
-      pipeline_tag: null
-    cmd: '/opt/llama-cuda/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/gemma4-coding-Q6_K.gguf
-
-      -ngl 99 -dev CUDA0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja
-
-      --host 127.0.0.1 --port ${PORT}
 
       '
   mistral-7b-cuda:
@@ -2771,43 +2275,6 @@ models:
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
     cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_M.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_M.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
-  qwen3-8-27b-ud-iq2-m-cuda:
-    ttl: 300
-    env:
-    - CUDA_VISIBLE_DEVICES=0
-    name: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
-    description: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      tools: true
-      context: 65536
-    metadata:
-      source_repo: unsloth/Qwen3.8-27B-GGUF
-      repo_url: https://huggingface.co/unsloth/Qwen3.8-27B-GGUF
-      file_size_bytes: 10319907904
-      file_sha256: 04a89ef4fa9c8726d09331433346809bbab692b4851d49d0738ba8d58a1ae740
-      has_checksum: true
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_M.mmproj.gguf
-      mmproj_filename: Qwen3.8-27B-UD-IQ2_M.mmproj.gguf
-      mtp: true
-      mtp_flag: --spec-type draft-mtp
-      pipeline_tag: null
-      mtp_tensor_sample:
-      - blk.64.nextn.eh_proj.weight
-      - blk.64.nextn.enorm.weight
-      - blk.64.nextn.hnorm.weight
-    cmd: '/opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_M.gguf
-
-      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
-
-      --host 0.0.0.0 --port ${PORT} --metrics
-
-      '
   qwen3-8-27b-ud-q3-k-xl:
     ttl: 300
     env:
