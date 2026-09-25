@@ -1,23 +1,3 @@
-# llama-hugs-config.yaml — wimpy
-# Canonical source for /etc/llama-hugs/config.yaml (deployed via
-# /usr/local/sbin/llama-hugs-deploy + /opt/llama-hugs/gen-config.py).
-# Rebuilt 2026-09-23 from the live config after 6c36e1e accidentally gutted
-# the models section (98 -> 2). All amd-r9700 members now carry --no-mmap
-# (ROCm mmap load hang under host memory pressure, proven 2026-09-23).
-#
-# HARDWARE: DUAL-GPU — see groups below.
-#   - AMD R9700 32GB (ROCm/HIP gfx1201) — primary, group amd-r9700.
-#   - RTX 5060 Ti 16GB (CUDA sm_120) — group nvidia-5060ti, the -cuda entries.
-#   - Ryzen 7700 Raphael iGPU also enumerates as ROCm — R9700 pinned by UUID.
-# BINARY: /usr/local/bin/llama-server (ROCm) | /opt/llama-cuda/bin/llama-server (CUDA).
-#   Never a bare `llama-server` (PATH resolution caused silent CPU fallback).
-# GPU PIN: HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a (R9700 by stable UUID);
-#   CUDA_VISIBLE_DEVICES=0 (5060 Ti). Both add --device as a hard-fail guard
-#   against silent CPU fallback.
-# --no-mmap: REQUIRED on all ROCm members — the mmap load path wedges (~98%
-#   CPU spin at load_model, /health never answers) under host memory pressure.
-#   Proven 2026-09-23: identical cmd + --no-mmap loads in 10.8s.
-#
 healthCheckTimeout:healthCheckTimeout: 180
 groups:
   amd-r9700:
@@ -125,8 +105,11 @@ models:
       repo_url: https://huggingface.co/wiklif/Qwen3.8-27B-KTopt-GGUF
       file_size_bytes: 11065024512
       file_sha256: f23aed2c97db0b5696311d21a218a9a63e1fe8aadd9c2077a49518c19703cade
-      runtime: kt-llama-cpp (docker ghcr.io/lrozewicz/kt-llama-cpp:cuda) — NOT mainline llama.cpp
-    cmd: /usr/bin/docker run --rm --gpus all -v /home/rahlquist/kt-models:/models:ro -e PORT=${PORT} -e PROFILE=auto -e GPU_INDEX=0 -e CUDA_VISIBLE_DEVICES=0 -e ALIAS=qwen3-8-27b-ktopt-cuda -p ${PORT}:${PORT} ghcr.io/lrozewicz/kt-llama-cpp:cuda
+      runtime: kt-llama-cpp (docker ghcr.io/lrozewicz/kt-llama-cpp:cuda) — NOT mainline
+        llama.cpp
+    cmd: /usr/bin/docker run --rm --gpus all -v /home/rahlquist/kt-models:/models:ro
+      -e PORT=${PORT} -e PROFILE=auto -e GPU_INDEX=0 -e CUDA_VISIBLE_DEVICES=0 -e
+      ALIAS=qwen3-8-27b-ktopt-cuda -p ${PORT}:${PORT} ghcr.io/lrozewicz/kt-llama-cpp:cuda
   qwen3-8-27b-orcarouter-gsq-rco-iq3-xxs-v2-0:
     ttl: 300
     env:
@@ -156,7 +139,10 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.0.gguf\n --no-mmap\n--n-gpu-layers 99 --spec-type draft-mtp --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.0.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.0.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --spec-type draft-mtp --device ROCm0 --flash-attn\
+      \ on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-OrcaRouter-GSQ-RCO-IQ3_XXS-v2.0.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   tiel-coder-35b-a3b-mtp-ud-q5-k-xl:
     ttl: 300
     env:
@@ -187,7 +173,9 @@ models:
       - blk.40.nextn.hnorm.weight
     cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Tiel-Coder-35B-A3B-MTP-UD-Q5_K_XL.gguf
 
-      --n-gpu-layers 99 --no-mmap --spec-type draft-mtp --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Tiel-Coder-35B-A3B-MTP-UD-Q5_K_XL.mmproj.gguf --jinja
+      --n-gpu-layers 99 --no-mmap --spec-type draft-mtp --device ROCm0 --flash-attn
+      on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Tiel-Coder-35B-A3B-MTP-UD-Q5_K_XL.mmproj.gguf
+      --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -197,7 +185,8 @@ models:
     env:
     - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
     name: Qwen3.8-27B-GSQ-RCO-GGUF
-    description: GSQ-RCO non-uniform mixed-precision GGUF (Deep Algorithms and Systems Lab, ISTA)
+    description: GSQ-RCO non-uniform mixed-precision GGUF (Deep Algorithms and Systems
+      Lab, ISTA)
     capabilities:
       in:
       - text
@@ -222,7 +211,10 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.shared_head_norm.weight
       - blk.64.nextn.enorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 262144 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics --spec-type draft-mtp\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 262144 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics --spec-type draft-mtp\n"
   whittle-moe-27b-a18b-v2-2-1-q3-k-m:
     ttl: 300
     env:
@@ -247,7 +239,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Whittle-MoE-27B-A18B-v2.2.1-Q3_K_M.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Whittle-MoE-27B-A18B-v2.2.1-Q3_K_M.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Whittle-MoE-27B-A18B-v2.2.1-Q3_K_M.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Whittle-MoE-27B-A18B-v2.2.1-Q3_K_M.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   whittle-moe-27b-a18b-v2-2-1-q8-0:
     ttl: 300
     env:
@@ -274,60 +269,20 @@ models:
       pipeline_tag: text-generation
     cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Whittle-MoE-27B-A18B-v2.2.1-Q8_0.gguf
 
-      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Whittle-MoE-27B-A18B-v2.2.1-Q8_0.mmproj.gguf --jinja
+      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0
+      --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Whittle-MoE-27B-A18B-v2.2.1-Q8_0.mmproj.gguf
+      --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
       '
-  llama-3-2-3b-instruct-q4-k-m-cuda:
-    ttl: 300
-    env:
-    - CUDA_VISIBLE_DEVICES=0
-    metadata:
-      source_repo: local/local
-      repo_url: ''
-      file_size_bytes: None
-      file_sha256: ''
-      vision: false
-      pipeline_tag: ''
-    cmd: '/opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Llama-3.2-3B-Instruct-Q4_K_M.gguf
-
-      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
-
-      --host 0.0.0.0 --port ${PORT} --metrics
-
-      '
-    capabilities: {}
-  llama-3-2-3b-instruct-q4-k-m:
-    ttl: 300
-    env:
-    - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
-    name: Llama 3.2 3B Instruct
-    capabilities:
-      in:
-      - text
-      out:
-      - text
-      context: 65536
-    metadata:
-      source_repo: ''
-      repo_url: ''
-      file_size_bytes: null
-      file_sha256: null
-      has_checksum: false
-      vision: false
-      mmproj: null
-      mmproj_filename: null
-      mtp: false
-      mtp_flag: null
-      pipeline_tag: null
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Llama-3.2-3B-Instruct-Q4_K_M.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3-8-27b-ud-iq4-xs:
     ttl: 300
     env:
     - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
     name: Qwen3.8-27B-GGUF
-    description: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
+    description: Renewal of the beloved Qwen model, delivering unmatched intelligence
+      density.
     capabilities:
       in:
       - text
@@ -352,7 +307,10 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ4_XS.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ4_XS.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ4_XS.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ4_XS.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   prompt-enhancer-uncensored-q8-0:
     ttl: 300
     env:
@@ -381,7 +339,10 @@ models:
       - blk.32.nextn.eh_proj.weight
       - blk.32.nextn.enorm.weight
       - blk.32.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/prompt_enhancer_uncensored-q8_0.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/prompt_enhancer_uncensored-q8_0.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/prompt_enhancer_uncensored-q8_0.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/prompt_enhancer_uncensored-q8_0.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   zen-voyager-i1-q5-k-m:
     ttl: 300
     env:
@@ -407,7 +368,8 @@ models:
       pipeline_tag: text-to-video
     cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/zen-voyager.i1-Q5_K_M.gguf
 
-      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 64000 --jinja
+      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0
+      --cache-type-v q4_0 --ctx-size 64000 --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -442,7 +404,9 @@ models:
       - blk.64.nextn.hnorm.weight
     cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Carnice-V3-Q6_K.gguf
 
-      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Carnice-V3-Q6_K.mmproj.gguf --jinja
+      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0
+      --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Carnice-V3-Q6_K.mmproj.gguf
+      --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -472,13 +436,17 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q4_K_M.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q4_K_M.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q4_K_M.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q4_K_M.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3-8-27b-ud-iq2-xxs:
     ttl: 300
     env:
     - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
     name: Qwen3.8-27B-GGUF
-    description: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
+    description: Renewal of the beloved Qwen model, delivering unmatched intelligence
+      density.
     capabilities:
       in:
       - text
@@ -503,13 +471,17 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_XXS.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_XXS.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_XXS.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_XXS.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3-8-27b-q6-k:
     ttl: 300
     env:
     - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
     name: Qwen3.8-27B-GGUF
-    description: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
+    description: Renewal of the beloved Qwen model, delivering unmatched intelligence
+      density.
     capabilities:
       in:
       - text
@@ -536,7 +508,9 @@ models:
       - blk.64.nextn.hnorm.weight
     cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q6_K.gguf
 
-      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q6_K.mmproj.gguf --jinja
+      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0
+      --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q6_K.mmproj.gguf
+      --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -570,7 +544,10 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-CRACK-IQ2_M.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-CRACK-IQ2_M.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-CRACK-IQ2_M.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-CRACK-IQ2_M.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3-8-27b-crack-iq3-m:
     ttl: 300
     env:
@@ -600,7 +577,10 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-CRACK-IQ3_M.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-CRACK-IQ3_M.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-CRACK-IQ3_M.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-CRACK-IQ3_M.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3-8-27b-crack-q8-0:
     ttl: 300
     env:
@@ -632,7 +612,9 @@ models:
       - blk.64.nextn.hnorm.weight
     cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-CRACK-Q8_0.gguf
 
-      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-CRACK-Q8_0.mmproj.gguf --jinja
+      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0
+      --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-CRACK-Q8_0.mmproj.gguf
+      --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -668,7 +650,9 @@ models:
       - blk.64.nextn.hnorm.weight
     cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Dagger-Qwen3.6-27B-Q6_K.gguf
 
-      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Dagger-Qwen3.6-27B-Q6_K.mmproj.gguf --jinja
+      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0
+      --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Dagger-Qwen3.6-27B-Q6_K.mmproj.gguf
+      --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -700,7 +684,9 @@ models:
       pipeline_tag: image-text-to-text
     cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Nail-Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf
 
-      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Nail-Qwen3.6-35B-A3B-UD-Q5_K_XL.mmproj.gguf --jinja
+      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0
+      --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Nail-Qwen3.6-35B-A3B-UD-Q5_K_XL.mmproj.gguf
+      --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -726,7 +712,8 @@ models:
       pipeline_tag: image-text-to-text
     cmd: '/opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf
 
-      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v
+      q4_0 --ctx-size 65536 --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -736,7 +723,8 @@ models:
     env:
     - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
     name: Dirk-Qwen3.8-27B-GGUF
-    description: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
+    description: Renewal of the beloved Qwen model, delivering unmatched intelligence
+      density.
     capabilities:
       in:
       - text
@@ -763,7 +751,9 @@ models:
       - blk.64.nextn.hnorm.weight
     cmd: '/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q6_K_XL.gguf
 
-      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q6_K_XL.mmproj.gguf --jinja
+      --n-gpu-layers 99 --no-mmap --device ROCm0 --flash-attn on --cache-type-k q4_0
+      --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q6_K_XL.mmproj.gguf
+      --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -773,7 +763,8 @@ models:
     env:
     - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
     name: Dirk-Qwen3.8-27B-GGUF
-    description: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
+    description: Renewal of the beloved Qwen model, delivering unmatched intelligence
+      density.
     capabilities:
       in:
       - text
@@ -798,7 +789,10 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q5_K_XL.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q5_K_XL.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q5_K_XL.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Dirk-Qwen3.8-27B-UD-Q5_K_XL.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   nail-qwen3-6-35b-a3b-ud-q4-k-xl:
     ttl: 300
     env:
@@ -825,7 +819,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Nail-Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf\n --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Nail-Qwen3.6-35B-A3B-UD-Q4_K_XL.mmproj.gguf\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Nail-Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf\n\
+      \ --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Nail-Qwen3.6-35B-A3B-UD-Q4_K_XL.mmproj.gguf\n\
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v\
+      \ q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   muse-glimmer-30b-ud-q2-k-xl-cuda:
     ttl: 300
     env:
@@ -853,7 +850,8 @@ models:
       pipeline_tag: image-text-to-text
     cmd: '/opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q2_K_XL.gguf
 
-      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v
+      q4_0 --ctx-size 65536 --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -883,7 +881,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q2_K_XL.gguf\n --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q2_K_XL.mmproj.gguf\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q2_K_XL.gguf\n\
+      \ --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q2_K_XL.mmproj.gguf\n\
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v\
+      \ q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-iq2-m:
     ttl: 300
     env:
@@ -914,7 +915,10 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ2_M.gguf\n --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ2_M.mmproj.gguf\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ2_M.gguf\n\
+      \ --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ2_M.mmproj.gguf\n\
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v\
+      \ q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-iq3-m:
     ttl: 300
     env:
@@ -945,33 +949,10 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ3_M.gguf\n --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ3_M.mmproj.gguf\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
-  muse-glimmer-30b-ud-q3-k-xl:
-    ttl: 300
-    env:
-    - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
-    name: Muse-Glimmer-30B
-    description: Muse-Glimmer-30B
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      context: 65536
-    metadata:
-      source_repo: unsloth/Muse-Glimmer-30B-GGUF
-      repo_url: https://huggingface.co/unsloth/Muse-Glimmer-30B-GGUF
-      file_size_bytes: 13360983072
-      file_sha256: 820d18e00c59376331eba62dd716a6bcdcaa305c2316f5da3a2fab36c7c37e15
-      has_checksum: true
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q3_K_XL.mmproj.gguf
-      mmproj_filename: Muse-Glimmer-30B-UD-Q3_K_XL.mmproj.gguf
-      mtp: false
-      mtp_flag: null
-      pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q3_K_XL.gguf\n --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q3_K_XL.mmproj.gguf\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ3_M.gguf\n\
+      \ --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-IQ3_M.mmproj.gguf\n\
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v\
+      \ q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   muse-glimmer-30b-ud-q6-k-xl:
     ttl: 300
     env:
@@ -997,7 +978,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q6_K_XL.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Muse-Glimmer-30B-UD-Q6_K_XL.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT}\
+      \ --metrics\n"
   gemma-4-e4b-uncensored-hauhaucs-aggressive-q8-k-p:
     ttl: 300
     env:
@@ -1023,7 +1007,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf\n --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q8_K_P.mmproj.gguf\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q8_K_P.gguf\n\
+      \ --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Gemma-4-E4B-Uncensored-HauhauCS-Aggressive-Q8_K_P.mmproj.gguf\n\
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v\
+      \ q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   flux2-klein-9b-uncensored-f16:
     ttl: 300
     env:
@@ -1049,7 +1036,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-to-image
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/flux2-klein-9b-uncensored-f16.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 64000 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/flux2-klein-9b-uncensored-f16.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 64000 --jinja\n--host 0.0.0.0 --port ${PORT}\
+      \ --metrics\n"
   qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-mtp-q4-k-s:
     ttl: 300
     env:
@@ -1080,7 +1070,10 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-Q4_K_S.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-MTP-Q4_K_S.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT}\
+      \ --metrics\n"
   qwen3-6-27b-fable-fus-711-unheretic-nm-dau-neo-max-neo-low-mtp-q6-k:
     ttl: 300
     env:
@@ -1111,7 +1104,10 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-LOW-MTP-Q6_K.gguf\n --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-LOW-MTP-Q6_K.mmproj.gguf\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-LOW-MTP-Q6_K.gguf\n\
+      \ --no-mmap\n--mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.6-27B-Fable-Fus-711-UnHeretic-NM-DAU-NEO-MAX-NEO-LOW-MTP-Q6_K.mmproj.gguf\n\
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v\
+      \ q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3-30b-a3b-instruct-2507-ud-q5-k-xl:
     ttl: 300
     env:
@@ -1137,7 +1133,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: null
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3-30B-A3B-Instruct-2507-UD-Q5_K_XL.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3-30B-A3B-Instruct-2507-UD-Q5_K_XL.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT}\
+      \ --metrics\n"
   qwen-qwen3-30b-a3b-instruct-2507-q6-k-l:
     ttl: 300
     env:
@@ -1163,7 +1162,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen_Qwen3-30B-A3B-Instruct-2507-Q6_K_L.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen_Qwen3-30B-A3B-Instruct-2507-Q6_K_L.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja\n--host 0.0.0.0 --port ${PORT}\
+      \ --metrics\n"
   qwen3-coder-30b-a3b-instruct-q5-k-m:
     ttl: 300
     env:
@@ -1189,7 +1191,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/Qwen3-Coder-30B-A3B-Instruct-Q5_K_M.gguf\n --no-mmap\n-ngl 99 --device ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/Qwen3-Coder-30B-A3B-Instruct-Q5_K_M.gguf\n\
+      \ --no-mmap\n-ngl 99 --device ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja\n\
+      --host 0.0.0.0 --port ${PORT} --metrics\n"
   deepseek-coder-v2-lite-instruct-q4-k-m:
     ttl: 300
     env:
@@ -1213,7 +1217,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf\n --no-mmap\n-ngl 99 -dev ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja\n--host 127.0.0.1 --port ${PORT}\n"
+    cmd: "/usr/local/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf\n\
+      \ --no-mmap\n-ngl 99 -dev ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja\n\
+      --host 127.0.0.1 --port ${PORT}\n"
   gemma4-coding-q6-k:
     ttl: 300
     env:
@@ -1237,7 +1243,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: null
-    cmd: "/usr/local/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/gemma4-coding-Q6_K.gguf\n --no-mmap\n-ngl 99 -dev ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja\n--host 127.0.0.1 --port ${PORT}\n"
+    cmd: "/usr/local/bin/llama-server -m /home/rahlquist/.cache/llama.cpp/gemma4-coding-Q6_K.gguf\n\
+      \ --no-mmap\n-ngl 99 -dev ROCm0 -fa on -ctk q4_0 -ctv q4_0 -c 65536 --jinja\n\
+      --host 127.0.0.1 --port ${PORT}\n"
   qwen2.5-coder-14b:
     ttl: 300
     env:
@@ -1262,7 +1270,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn\
+      \ on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT}\
+      \ --jinja --metrics\n"
   mistral-7b:
     ttl: 300
     env:
@@ -1287,7 +1298,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn\
+      \ on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT}\
+      \ --jinja --metrics\n"
   llama3.2-3b:
     ttl: 300
     env:
@@ -1311,7 +1325,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Llama-3.2-3B-Instruct-Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Llama-3.2-3B-Instruct-Q4_K_M.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn\
+      \ on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT}\
+      \ --jinja --metrics\n"
   granite-4.1-8b:
     ttl: 300
     env:
@@ -1335,7 +1352,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/ibm-granite_granite-4.1-8b-Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/ibm-granite_granite-4.1-8b-Q4_K_M.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn\
+      \ on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT}\
+      \ --jinja --metrics\n"
   granite-4.1-3b:
     ttl: 300
     env:
@@ -1359,7 +1379,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/ibm-granite_granite-4.1-3b-Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/ibm-granite_granite-4.1-3b-Q4_K_M.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn\
+      \ on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT}\
+      \ --jinja --metrics\n"
   phi-4:
     ttl: 300
     env:
@@ -1383,7 +1406,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/phi-4-Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/phi-4-Q4_K_M.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn\
+      \ on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT}\
+      \ --jinja --metrics\n"
   deepseek-r1-14b:
     ttl: 300
     env:
@@ -1407,32 +1433,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
-  gemma-3-12b:
-    ttl: 300
-    env:
-    - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
-    name: Gemma 3 12b It
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      context: 65536
-    metadata:
-      source_repo: unsloth/gemma-3-12b-it-GGUF
-      repo_url: https://huggingface.co/unsloth/gemma-3-12b-it-GGUF
-      file_size_bytes: 12510212576
-      file_sha256: a774cd9c6f289a6159f4a3f92a7ebca887e15073f92016d53c3593cb440a5982
-      has_checksum: true
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/google_gemma-3-12b-it-Q8_0.mmproj.gguf
-      mmproj_filename: google_gemma-3-12b-it-Q8_0.mmproj.gguf
-      mtp: false
-      mtp_flag: null
-      pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/google_gemma-3-12b-it-Q8_0.gguf\n --no-mmap\n  --mmproj /home/rahlquist/.cache/llama.cpp/google_gemma-3-12b-it-Q8_0.mmproj.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn\
+      \ on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT}\
+      \ --jinja --metrics\n"
   gemma-4-12b:
     ttl: 300
     env:
@@ -1457,7 +1461,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/gemma-4-12B-it-Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/gemma-4-12B-it-Q4_K_M.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn\
+      \ on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT}\
+      \ --jinja --metrics\n"
   llama-2-7b:
     ttl: 300
     env:
@@ -1481,7 +1488,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/llama-2-7b-chat.Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/llama-2-7b-chat.Q4_K_M.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn\
+      \ on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT}\
+      \ --jinja --metrics\n"
   qwen3.5-9b-q4:
     ttl: 300
     env:
@@ -1507,7 +1517,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.gguf\n --no-mmap\n  --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.mmproj.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.gguf\n\
+      \ --no-mmap\n  --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.mmproj.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   qwen3.5-9b-q6:
     ttl: 300
     env:
@@ -1533,7 +1546,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q6_K.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q6_K.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn\
+      \ on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT}\
+      \ --jinja --metrics\n"
   qwen3.5-9b-q8:
     ttl: 300
     env:
@@ -1559,7 +1575,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: image-text-to-text
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.gguf\n --no-mmap\n  --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.mmproj.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.gguf\n\
+      \ --no-mmap\n  --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.mmproj.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   ling-mini-2-q4:
     ttl: 300
     env:
@@ -1584,7 +1603,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: null
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q4_K_M.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0\n\
+      \  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0\
+      \ --port ${PORT} --jinja --metrics\n"
   ling-mini-2-q5:
     ttl: 300
     env:
@@ -1609,7 +1631,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q5_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q5_K_M.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0\n\
+      \  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0\
+      \ --port ${PORT} --jinja --metrics\n"
   ling-mini-2-q6:
     ttl: 300
     env:
@@ -1634,7 +1659,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: null
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q6_K.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q6_K.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0\n\
+      \  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0\
+      \ --port ${PORT} --jinja --metrics\n"
   qwen3-30b-a3b:
     ttl: 300
     env:
@@ -1659,7 +1687,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen3-30B-A3B-Q4_K_M.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0\n  --batch-size 2048 --ubatch-size 512\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen3-30B-A3B-Q4_K_M.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --n-cpu-moe 0 --device ROCm0\n\
+      \  --batch-size 2048 --ubatch-size 512\n  --flash-attn on --cache-type-k q4_0\
+      \ --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   ovisocr2-f16-cuda:
     ttl: 300
     env:
@@ -1688,7 +1719,8 @@ models:
 
       --mmproj /home/rahlquist/.cache/llama.cpp/OvisOCR2-F16.mmproj.gguf
 
-      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v
+      q4_0 --ctx-size 65536 --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -1719,38 +1751,8 @@ models:
       pipeline_tag: text-generation
     cmd: '/opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen2.5-Coder-14B-Instruct-Q4_K_M.gguf
 
-      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
-
-      --host 0.0.0.0 --port ${PORT} --metrics
-
-      '
-  gemma-3-12b-cuda:
-    ttl: 300
-    env:
-    - CUDA_VISIBLE_DEVICES=0
-    name: Gemma 3 12b It
-    capabilities:
-      in:
-      - text
-      - image
-      out:
-      - text
-      context: 65536
-    metadata:
-      source_repo: unsloth/gemma-3-12b-it-GGUF
-      repo_url: https://huggingface.co/unsloth/gemma-3-12b-it-GGUF
-      file_size_bytes: 12510212576
-      file_sha256: a774cd9c6f289a6159f4a3f92a7ebca887e15073f92016d53c3593cb440a5982
-      has_checksum: true
-      vision: true
-      mmproj: /home/rahlquist/.cache/llama.cpp/google_gemma-3-12b-it-Q8_0.mmproj.gguf
-      mmproj_filename: google_gemma-3-12b-it-Q8_0.mmproj.gguf
-      mtp: false
-      mtp_flag: null
-      pipeline_tag: image-text-to-text
-    cmd: '/opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/google_gemma-3-12b-it-Q8_0.gguf
-
-      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v
+      q4_0 --ctx-size 65536 --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -1782,7 +1784,8 @@ models:
       pipeline_tag: image-text-to-text
     cmd: '/opt/llama-cuda/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q6_K.gguf
 
-      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --jinja
+      --n-gpu-layers 99 --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v
+      q4_0 --ctx-size 65536 --jinja
 
       --host 0.0.0.0 --port ${PORT} --metrics
 
@@ -1811,7 +1814,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   llama3.2-3b-cuda:
     ttl: 300
     env:
@@ -1835,7 +1840,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Llama-3.2-3B-Instruct-Q4_K_M.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Llama-3.2-3B-Instruct-Q4_K_M.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   granite-4.1-8b-cuda:
     ttl: 300
     env:
@@ -1859,7 +1866,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/ibm-granite_granite-4.1-8b-Q4_K_M.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/ibm-granite_granite-4.1-8b-Q4_K_M.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   granite-4.1-3b-cuda:
     ttl: 300
     env:
@@ -1883,7 +1892,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/ibm-granite_granite-4.1-3b-Q4_K_M.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/ibm-granite_granite-4.1-3b-Q4_K_M.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   phi-4-cuda:
     ttl: 300
     env:
@@ -1907,7 +1918,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/phi-4-Q4_K_M.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/phi-4-Q4_K_M.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   deepseek-r1-14b-cuda:
     ttl: 300
     env:
@@ -1931,7 +1944,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   gemma-4-12b-cuda:
     ttl: 300
     env:
@@ -1956,7 +1971,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: image-text-to-text
-    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/gemma-4-12B-it-Q4_K_M.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/gemma-4-12B-it-Q4_K_M.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   llama-2-7b-cuda:
     ttl: 300
     env:
@@ -1980,7 +1997,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/llama-2-7b-chat.Q4_K_M.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/llama-2-7b-chat.Q4_K_M.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   qwen3.5-9b-q4-cuda:
     ttl: 300
     env:
@@ -2006,7 +2025,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: image-text-to-text
-    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.gguf\n  --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.mmproj.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.gguf\n\
+      \  --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q4_K_M.mmproj.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   qwen3.5-9b-q8-cuda:
     ttl: 300
     env:
@@ -2032,7 +2054,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: image-text-to-text
-    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.gguf\n  --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.mmproj.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.gguf\n\
+      \  --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.5-9B.Q8_0.mmproj.gguf\n \
+      \ --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   ling-mini-2-q4-cuda:
     ttl: 300
     env:
@@ -2057,7 +2082,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: null
-    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q4_K_M.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q4_K_M.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   ling-mini-2-q5-cuda:
     ttl: 300
     env:
@@ -2082,7 +2109,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q5_K_M.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q5_K_M.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   ling-mini-2-q6-cuda:
     ttl: 300
     env:
@@ -2107,7 +2136,9 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: null
-    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q6_K.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/opt/llama-cuda/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/inclusionAI_Ling-mini-2.0-Q6_K.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device CUDA0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   agents-a1-q4:
     ttl: 300
     env:
@@ -2132,7 +2163,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Agents-A1-Q4_K_M.gguf\n --no-mmap\n  --mmproj /home/rahlquist/.cache/llama.cpp/Agents-A1-Q4_K_M.mmproj.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Agents-A1-Q4_K_M.gguf\n\
+      \ --no-mmap\n  --mmproj /home/rahlquist/.cache/llama.cpp/Agents-A1-Q4_K_M.mmproj.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   janus-pro-7b:
     ttl: 300
     env:
@@ -2157,7 +2191,10 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: null
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Janus-Pro-7B.f16.gguf\n --no-mmap\n  --mmproj /home/rahlquist/.cache/llama.cpp/Janus-Pro-7B.f16.mmproj.gguf\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/Janus-Pro-7B.f16.gguf\n\
+      \ --no-mmap\n  --mmproj /home/rahlquist/.cache/llama.cpp/Janus-Pro-7B.f16.mmproj.gguf\n\
+      \  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
   phi-4-q8:
     ttl: 300
     env:
@@ -2181,13 +2218,17 @@ models:
       mtp: false
       mtp_flag: null
       pipeline_tag: text-generation
-    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/phi-4-Q8_0.gguf\n --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT} --jinja --metrics\n"
+    cmd: "/usr/local/bin/llama-server\n  --model /home/rahlquist/.cache/llama.cpp/phi-4-Q8_0.gguf\n\
+      \ --no-mmap\n  --ctx-size 65536 --n-gpu-layers 99 --device ROCm0\n  --flash-attn\
+      \ on --cache-type-k q4_0 --cache-type-v q4_0\n  --host 0.0.0.0 --port ${PORT}\
+      \ --jinja --metrics\n"
   qwen3-8-27b-q3-k-s:
     ttl: 300
     env:
     - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
     name: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
-    description: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
+    description: Renewal of the beloved Qwen model, delivering unmatched intelligence
+      density.
     capabilities:
       in:
       - text
@@ -2212,13 +2253,17 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q3_K_S.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q3_K_S.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q3_K_S.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q3_K_S.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3-8-27b-q5-k-m:
     ttl: 300
     env:
     - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
     name: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
-    description: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
+    description: Renewal of the beloved Qwen model, delivering unmatched intelligence
+      density.
     capabilities:
       in:
       - text
@@ -2243,13 +2288,17 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q5_K_M.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q5_K_M.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q5_K_M.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Q5_K_M.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3-8-27b-ud-iq2-m:
     ttl: 300
     env:
     - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
     name: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
-    description: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
+    description: Renewal of the beloved Qwen model, delivering unmatched intelligence
+      density.
     capabilities:
       in:
       - text
@@ -2274,13 +2323,17 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_M.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_M.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_M.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-IQ2_M.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3-8-27b-ud-q3-k-xl:
     ttl: 300
     env:
     - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
     name: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
-    description: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
+    description: Renewal of the beloved Qwen model, delivering unmatched intelligence
+      density.
     capabilities:
       in:
       - text
@@ -2305,13 +2358,17 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-Q3_K_XL.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-Q3_K_XL.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-Q3_K_XL.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-Q3_K_XL.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
   qwen3-8-27b-ud-q5-k-xl:
     ttl: 300
     env:
     - HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a
     name: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
-    description: Renewal of the beloved Qwen model, delivering unmatched intelligence density.
+    description: Renewal of the beloved Qwen model, delivering unmatched intelligence
+      density.
     capabilities:
       in:
       - text
@@ -2336,4 +2393,7 @@ models:
       - blk.64.nextn.eh_proj.weight
       - blk.64.nextn.enorm.weight
       - blk.64.nextn.hnorm.weight
-    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-Q5_K_XL.gguf\n --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-Q5_K_XL.mmproj.gguf --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
+    cmd: "/usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-Q5_K_XL.gguf\n\
+      \ --no-mmap\n--n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k\
+      \ q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-UD-Q5_K_XL.mmproj.gguf\
+      \ --jinja\n--host 0.0.0.0 --port ${PORT} --metrics\n"
