@@ -320,6 +320,16 @@ Both GPUs serve inference at the same time, behind one `llama-hugs`:
 See `NETWORK-DIAGRAM.md` for the host/VM bridge layout and traffic flow
 (rendered diagram: `network-diagram.svg`).
 
+## OvisOCR / Llama Hugs post-deploy check
+
+After updating or restarting either service on WIMPY, run:
+
+```bash
+python3 tools/verify_ovisocr_llama_isolation.py
+```
+
+It checks Ovis health and the no-Holo page, submits a synthetic OCR request, and verifies that Llama Hugs stays active with the same process identity and `/v1/models` inventory. It uses Ovis' CPU-only CLI settings and does not call Llama Hugs generation or restart either service. Details: `docs/ovisocr-llama-isolation.md`.
+
 ## Files in this project
 
 ```
