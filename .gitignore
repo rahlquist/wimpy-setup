@@ -25,6 +25,10 @@ benching/bench.db
 benching/bench_summary.csv
 benching/watcher.log
 *.bak
+# Timestamped config backups (llama-hugs-config.yaml.bak.<stamp>) and the
+# generated runtime config — local safety copies, never source.
+*.bak.*
+llama-hugs-config.generated.yaml
 
 # ── Local fetch/smoke evidence — never publish ──────────────────────────────
 fetch-model-*.run.log

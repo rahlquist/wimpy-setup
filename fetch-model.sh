@@ -7,6 +7,7 @@
 #   ./fetch-model.sh [options] "hf download hf://owner/repo/file.gguf [N]"
 #   ./fetch-model.sh [options] "https://example.com/path/to/model.gguf [N]"
 #   ./fetch-model.sh [options] /abs/or/rel/path/to/model.gguf
+#   ./fetch-model.sh --integration ID [options] <model spec>
 #
 # The optional trailing N is --n-cpu-moe N. It is accepted only for models
 # whose downloaded GGUF metadata proves they are MoE models. The script never
@@ -96,6 +97,7 @@ recover_dossier(){
     local resume="cd \"$(pwd)\" && ./fetch-model.sh"
     local rspec; rspec="$(printf '%q' "${SPEC:-}")"; resume+=" ${rspec}"
     [[ -n "${CPU_MOE:-}" ]] && resume+=" --n-cpu-moe $CPU_MOE"
+    [[ -n "${INTEGRATION_OVERRIDE:-}" ]] && resume+=" --integration $INTEGRATION_OVERRIDE"
     (( ASSUME_YES )) && resume+=" -y"
     (( DO_SMOKE )) || resume+=" --no-smoke"
     (( DO_DEPLOY )) || resume+=" --no-deploy"
@@ -139,7 +141,7 @@ INVENTORY_RENDERER="${INVENTORY_RENDERER:-$SCRIPT_DIR/tools/render_model_invento
 INVENTORY_PATH="${INVENTORY_PATH:-$SCRIPT_DIR/model-inventory.html}"
 METADATA_DIR="${MODEL_METADATA_DIR:-$SCRIPT_DIR/model-metadata}"
 DEPLOY_SOURCE_CONFIG="${DEPLOY_SOURCE_CONFIG:-$SCRIPT_DIR/llama-hugs-config.yaml}"
-DEPLOY_HELPER="${DEPLOY_HELPER:-/usr/local/sbin/llama-hugs-deploy}"
+DEPLOY_HELPER="${DEPLOY_HELPER:-$SCRIPT_DIR/tools/llama-hugs-deploy}"
 MMPROJ_RESOLVER="${MMPROJ_RESOLVER:-$SCRIPT_DIR/tools/resolve_and_fetch_mmproj.py}"
 REPO_META_TOOL="${REPO_META_TOOL:-$SCRIPT_DIR/tools/fetch_repo_metadata.py}"
 # Canonical Llama Hugs persistence: after a successful NEW registration the
@@ -153,7 +155,7 @@ HUGS_PERSIST_FAIL="${HUGS_PERSIST_FAIL:-0}"
 
 NAME=""; CTX="64000"; CTX_REQUESTED=""; ASSUME_YES=0; DO_SMOKE=1; DO_REGISTER=1; DO_DEPLOY=1; DO_MMPROJ=1
 NAME_EXPLICIT=""
-SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""
+SPEC=""; CPU_MOE=""; DEVICE_OVERRIDE=""; INTEGRATION_OVERRIDE=""; MODEL_INTEGRATION_ID=""
 KEEP_SOURCE=0; SOURCE_COPIED=0; SRC_CLASS=""; LOCAL_SRC=""; URL=""; REMOTE_FILE=""
 MMPROJ_PATH=""
 VRAM_BEFORE_BYTES=0
@@ -188,6 +190,7 @@ while [[ $# -gt 0 ]]; do
     -c) CTX="${2:-}"; CTX_REQUESTED=1; shift 2;;
     -d) DEVICE_OVERRIDE="${2:-}"; shift 2;;
     --n-cpu-moe) CPU_MOE="${2:-}"; shift 2;;
+    --integration) INTEGRATION_OVERRIDE="${2:-}"; shift 2;;
     -y) ASSUME_YES=1; shift;;
     --no-smoke) DO_SMOKE=0; shift;;
     --keep-source) KEEP_SOURCE=1; shift;;
@@ -281,6 +284,18 @@ case "$SRC_CLASS" in
   local) [[ -r "$LOCAL_SRC" ]] || die "local source not readable: $LOCAL_SRC";;
 esac
 REPO_ID="${OWNER}/${REPO}"
+INTEGRATION_RESOLVER="$SCRIPT_DIR/tools/model_integrations/resolve.py"
+INTEGRATION_LAUNCHER="$SCRIPT_DIR/tools/model_integrations/launcher.py"
+[[ -f "$INTEGRATION_RESOLVER" && -f "$INTEGRATION_LAUNCHER" ]] || die "model integration dispatcher is missing"
+if [[ -n "$INTEGRATION_OVERRIDE" ]]; then
+  MODEL_INTEGRATION_ID="$(python3 "$INTEGRATION_RESOLVER" --integration "$INTEGRATION_OVERRIDE")" || die "unknown model integration: $INTEGRATION_OVERRIDE"
+else
+  MODEL_INTEGRATION_ID="$(python3 "$INTEGRATION_RESOLVER" --repository "$REPO_ID" --filename "$FILE")" || die "model integration selection failed"
+fi
+if [[ -n "$MODEL_INTEGRATION_ID" ]]; then
+  INTEGRATION_FETCH_SUPPORTED="$(python3 "$INTEGRATION_RESOLVER" --integration "$MODEL_INTEGRATION_ID" --supports-fetch)"
+  [[ "$INTEGRATION_FETCH_SUPPORTED" == "yes" ]] || die "integration '$MODEL_INTEGRATION_ID' is runtime-only; ${MODEL_INTEGRATION_ID} requires its documented model-store workflow"
+fi
 
 # The example may be supplied as an unquoted command with a separate final N.
 # The main parser has already put that N in CPU_MOE.
@@ -341,6 +356,13 @@ case "$GPU_DEVICE" in
   Vulkan*) GPU_ENV_VAR="GGML_VK_VISIBLE_DEVICES";;
   *) die "could not determine GPU device. Pass -d ROCm0/CUDA0 explicitly.";;
 esac
+if [[ -n "$MODEL_INTEGRATION_ID" ]]; then
+  INTEGRATION_SERVER="$(python3 "$INTEGRATION_RESOLVER" --integration "$MODEL_INTEGRATION_ID" --server-for "$GPU_DEVICE")"
+  if [[ -n "$INTEGRATION_SERVER" ]]; then
+    [[ -x "$INTEGRATION_SERVER" ]] || die "integration '$MODEL_INTEGRATION_ID' server is missing or not executable: $INTEGRATION_SERVER"
+    LLAMA_SERVER="$INTEGRATION_SERVER"
+  fi
+fi
 # Pin VALUE. Default to index 0, but on ROCm wimpy now has TWO ROCm devices —
 # the R9700 (inference) and the Ryzen 7700 Raphael iGPU (gfx1036). An index pin
 # is fragile (a reorder could select the iGPU), so pin the R9700 by its stable
@@ -541,18 +563,24 @@ acquire_model
 # FIXED in 7.2.0-rc7-1-cachyos-rc (verified 2026-08-15: 23.27 GiB mmap load
 # comes up healthy in ~9s; evidence probe11-glm47-mmap-kernel-rc7-*.log).
 # Evidence: evidence-20260814-qwen38-smoke/ ; upstream: llama.cpp#19482.
-# Reading weights into RAM instead (--no-mmap) avoids the bug entirely. The
+# Reading weights into RAM instead of mmap avoids the bug entirely. The
 # guard is KEPT even though the fix kernel is booted: harmless insurance
 # against the regression returning in a future kernel. Cost is a transient
 # host-RAM spike during load, so only large files get the flag.
 # Threshold 19 GiB: confirmed mmap-working maximum is 18.8 GiB (Dirk Q5_K_XL);
 # confirmed lowest mmap hang is 19.84 GiB (Qwen3.8-27B-Q6_K).
+#
+# FLAG RENAME (llama.cpp v0.5.0, 2026-10-02): `--no-mmap` was REMOVED and
+# replaced by `--load-mode MODE`. Passing the old flag now hard-fails with
+# `error: invalid argument: --no-mmap`, which took down every ROCm model at
+# once during the v0.5.0 upgrade. `--load-mode none` is the exact equivalent
+# (read weights into RAM, do not memory-map).
 NOMMAP_THRESHOLD=$((19 * 1024 * 1024 * 1024))
 MODEL_BYTES="$(stat -c '%s' "$MODEL_PATH")"
 NOMMAP_ARG=()
 if (( MODEL_BYTES >= NOMMAP_THRESHOLD )); then
-  NOMMAP_ARG=(--no-mmap)
-  warn "model file is $(( MODEL_BYTES / 1073741824 )) GiB (>= 19 GiB): adding --no-mmap to avoid the ROCm large-mmap weight-upload hang."
+  NOMMAP_ARG=(--load-mode none)
+  warn "model file is $(( MODEL_BYTES / 1073741824 )) GiB (>= 19 GiB): adding --load-mode none to avoid the ROCm large-mmap weight-upload hang."
 fi
 
 set_stage "inspect"
@@ -577,6 +605,20 @@ import json,sys
 print('yes' if json.loads(sys.argv[1]).get('has_mtp') else '')
 PY
 )"
+if [[ -z "$INTEGRATION_OVERRIDE" ]]; then
+  ARCH_INTEGRATION_ID="$(python3 "$INTEGRATION_RESOLVER" --repository "$REPO_ID" --filename "$FILE" --architecture "$ARCH")" || die "model integration selection failed"
+  [[ -z "$ARCH_INTEGRATION_ID" ]] || MODEL_INTEGRATION_ID="$ARCH_INTEGRATION_ID"
+fi
+if [[ -n "$MODEL_INTEGRATION_ID" ]]; then
+  INTEGRATION_FETCH_SUPPORTED="$(python3 "$INTEGRATION_RESOLVER" --integration "$MODEL_INTEGRATION_ID" --supports-fetch)"
+  [[ "$INTEGRATION_FETCH_SUPPORTED" == "yes" ]] || die "integration '$MODEL_INTEGRATION_ID' is runtime-only; ${MODEL_INTEGRATION_ID} requires its documented model-store workflow"
+  INTEGRATION_SERVER="$(python3 "$INTEGRATION_RESOLVER" --integration "$MODEL_INTEGRATION_ID" --server-for "$GPU_DEVICE")"
+  if [[ -n "$INTEGRATION_SERVER" ]]; then
+    [[ -x "$INTEGRATION_SERVER" ]] || die "integration '$MODEL_INTEGRATION_ID' server is missing or not executable: $INTEGRATION_SERVER"
+    LLAMA_SERVER="$INTEGRATION_SERVER"
+  fi
+  printf '  │ integration  : %s\n' "$MODEL_INTEGRATION_ID"
+fi
 # --- Exclusion gate: flag Mac-only / unsupported models BEFORE smoke/register.
 set_stage "exclude"
 if is_excluded_model; then
@@ -728,9 +770,9 @@ fetch_mmproj
 # vision capability + the namespaced mmproj filename we assigned, MTP presence
 # and the exact llama.cpp flag needed (--spec-type draft-mtp).
 DETAILS_FILE="$(mktemp /tmp/fetch-model.details.XXXXXX)"
-python3 - "$DETAILS_FILE" "$REPO_META_JSON" "$METADATA_JSON" "$MMPROJ_PATH" "$EFFECTIVE_CTX" "$NATIVE_CTX" <<'PY'
+python3 - "$DETAILS_FILE" "$REPO_META_JSON" "$METADATA_JSON" "$MMPROJ_PATH" "$EFFECTIVE_CTX" "$NATIVE_CTX" "$MODEL_INTEGRATION_ID" <<'PY'
 import json, sys
-out, repo_meta_raw, gguf_raw, mmproj, eff_ctx, native_ctx = sys.argv[1:]
+out, repo_meta_raw, gguf_raw, mmproj, eff_ctx, native_ctx, integration_id = sys.argv[1:]
 repo_meta = json.loads(repo_meta_raw or '{}')
 gguf = json.loads(gguf_raw or '{}')
 mmproj_path = mmproj or ''
@@ -770,6 +812,7 @@ meta = {
     'mtp_flag': '--spec-type draft-mtp' if has_mtp else None,
     'mtp_tensor_sample': (gguf.get('mtp_tensor_sample') or [])[:3],
     'pipeline_tag': repo_meta.get('pipeline_tag','') or None,
+    'integration_id': integration_id or None,
 }
 lines.append('metadata:')
 # Manual block-style YAML (relative indent under the metadata: key). Avoids the
@@ -783,7 +826,7 @@ def yaml_scalar(v):
         return str(v)
     return json.dumps(str(v))
 for k in ('source_repo', 'repo_url', 'file_size_bytes', 'file_sha256', 'has_checksum',
-          'vision', 'mmproj', 'mmproj_filename', 'mtp', 'mtp_flag', 'pipeline_tag'):
+          'vision', 'mmproj', 'mmproj_filename', 'mtp', 'mtp_flag', 'pipeline_tag', 'integration_id'):
     v = meta.get(k)
     lines.append(f'  {k}: {yaml_scalar(v)}')
 if meta.get('mtp_tensor_sample'):
@@ -823,6 +866,9 @@ CMD_LINES=(
   "--n-gpu-layers 99 ${MOE_ARG[*]:-} ${NOMMAP_ARG[*]:-} ${MTP_ARG[*]:-} --device $GPU_DEVICE --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 $CTX_TEXT ${MMPROJ_ARG[*]:-} --jinja"
   '--host 0.0.0.0 --port ${PORT} --metrics'
 )
+if [[ -n "$MODEL_INTEGRATION_ID" ]]; then
+  CMD_LINES[0]="/usr/bin/python3 $INTEGRATION_LAUNCHER --integration $MODEL_INTEGRATION_ID --backend $GPU_DEVICE -- $LLAMA_SERVER --model $MODEL_PATH"
+fi
 # Remove the harmless double space when MoE offload is not configured.
 CMD_LINES[1]="$(printf '%s' "${CMD_LINES[1]}" | tr -s ' ')"
 
@@ -834,6 +880,10 @@ CUDA_SUMMARY="not evaluated"
 CUDA_SUPPORTED=0
 CUDA_NAME="${NAME}-cuda"
 CUDA_SERVER="/opt/llama-cuda/bin/llama-server"
+if [[ -n "$MODEL_INTEGRATION_ID" ]]; then
+  INTEGRATION_CUDA_SERVER="$(python3 "$INTEGRATION_RESOLVER" --integration "$MODEL_INTEGRATION_ID" --server-for CUDA0)"
+  [[ -z "$INTEGRATION_CUDA_SERVER" ]] || CUDA_SERVER="$INTEGRATION_CUDA_SERVER"
+fi
 CUDA_FIT_JSON=""
 CUDA_FREE_BYTES=""
 cuda_fit_decision(){
@@ -894,8 +944,12 @@ smoke_test(){
   SMOKE_LOG="$(mktemp /tmp/fetch-model.smoke.XXXXXX.log)"
   VRAM_BEFORE_BYTES="$(read_gpu_vram_bytes "$GPU_DEVICE")"
   VRAM_PEAK_BYTES="$VRAM_BEFORE_BYTES"
-  info "smoke test: ctx=$EFFECTIVE_CTX ($CTX_MODE) device=$GPU_DEVICE cpu-moe=${CPU_MOE:-none}"
-  env "${GPU_ENV_VAR}=${GPU_PIN_VALUE}" "$LLAMA_SERVER" --model "$MODEL_PATH" --n-gpu-layers 99 "${MOE_ARG[@]}" \
+  info "smoke test: ctx=$EFFECTIVE_CTX ($CTX_MODE) device=$GPU_DEVICE cpu-moe=${CPU_MOE:-none} integration=${MODEL_INTEGRATION_ID:-default}"
+  local -a launch_prefix=("$LLAMA_SERVER")
+  if [[ -n "$MODEL_INTEGRATION_ID" ]]; then
+    launch_prefix=(/usr/bin/python3 "$INTEGRATION_LAUNCHER" --integration "$MODEL_INTEGRATION_ID" --backend "$GPU_DEVICE" -- "$LLAMA_SERVER")
+  fi
+  env "${GPU_ENV_VAR}=${GPU_PIN_VALUE}" "${launch_prefix[@]}" --model "$MODEL_PATH" --n-gpu-layers 99 "${MOE_ARG[@]}" \
     --device "$GPU_DEVICE" --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 "${CTX_ARG[@]}" "${NOMMAP_ARG[@]}" "${MTP_ARG[@]}" "${MMPROJ_ARG[@]}" --jinja \
     --host 127.0.0.1 --port "$SMOKE_PORT" >"$SMOKE_LOG" 2>&1 &
   SERVER_PID=$!
@@ -1011,14 +1065,12 @@ deploy_live_config(){
     info "automatic deployment skipped: config is not the canonical source ($CONFIG)."
     return 0
   fi
-  [[ -x "$DEPLOY_HELPER" ]] || die "automatic deployment helper missing: $DEPLOY_HELPER (run sudo $SCRIPT_DIR/install-llama-hugs-autodeploy.sh)"
-  command -v sudo >/dev/null || die "sudo is required for automatic deployment"
-  # Pass the resolved repo config to the helper so it never depends on its own
-  # hardcoded default (the project moved out of ~/Downloads; ~/$REPO is canonical).
+  [[ -x "$DEPLOY_HELPER" ]] || die "user deployment helper missing: $DEPLOY_HELPER (run ./install-llama-hugs-autodeploy.sh once)"
+  # Pass the selected user-owned source config to the helper; no sudo needed.
   export SOURCE_CONFIG="$CONFIG"
   set_stage "deploy"
-  sudo -n "$DEPLOY_HELPER" || die "automatic deployment failed; live config was not verified"
-  ok "deployed live llama-hugs config and verified its API model list"
+  "$DEPLOY_HELPER" || die "automatic user deployment failed; live config was not verified"
+  ok "deployed user-owned llama-hugs config and verified its API model list"
 }
 
 set_stage "register"
@@ -1078,7 +1130,7 @@ if gi is not None:
         members=next((i for i in range(gi+1, group_end) if re.match(r'^    members:\s*$', lines[i])), None)
         if members is None:
             raise SystemExit('amd-r9700 members list not found')
-        lines.insert(members+1, f'      - "{name}"')
+        lines.insert(members+1, f'    - "{name}"')
 mi=next((i for i,l in enumerate(lines) if re.match(r'^models:\s*(?:#.*)?$', l)), None)
 if mi is None: raise SystemExit('no top-level models: key found')
 child_indent='  '
@@ -1122,9 +1174,9 @@ esac
 # avoids putting untracked sidecars in a model cache, and retains inspection
 # evidence even when a model is moved or re-downloaded.
 set +e
-python3 - "$SIDECAR_TMP" "$NAME" "$REPO_ID" "$FILE" "$MODEL_PATH" "$EFFECTIVE_CTX" "$NATIVE_CTX" "$CPU_MOE" "$MMPROJ_PATH" "$METADATA_JSON" "$DESCRIPTION" "$REPO_META_JSON" <<'PY'
+python3 - "$SIDECAR_TMP" "$NAME" "$REPO_ID" "$FILE" "$MODEL_PATH" "$EFFECTIVE_CTX" "$NATIVE_CTX" "$CPU_MOE" "$MMPROJ_PATH" "$METADATA_JSON" "$DESCRIPTION" "$REPO_META_JSON" "$MODEL_INTEGRATION_ID" <<'PY'
 import json,sys,datetime
-out,alias,repo,file,path,ctx,native,cpu,mmproj_path,metadata,description,repo_meta_raw=sys.argv[1:]
+out,alias,repo,file,path,ctx,native,cpu,mmproj_path,metadata,description,repo_meta_raw,integration_id=sys.argv[1:]
 m=json.loads(metadata)
 repo_meta=json.loads(repo_meta_raw or '{}')
 has_mtp=bool(m.get('has_mtp'))
@@ -1144,6 +1196,7 @@ data={
   'file_sha256':repo_meta.get('file_sha256') or None,
   'has_checksum':bool(repo_meta.get('has_checksum')),
   'pipeline_tag':repo_meta.get('pipeline_tag','') or None,
+  'integration_id':integration_id or None,
   'gguf':m,
   'description':description or m.get('name') or f'GGUF from {repo}',
 }
@@ -1192,11 +1245,11 @@ if (( ! PRIMARY_ALREADY )); then
   python3 - "$HUGS_PAYLOAD" "$NAME" "$MODEL_PATH" "$FILE" "$REPO_ID" "$GPU_DEVICE" \
     "$EFFECTIVE_CTX" "$CPU_MOE" "$MMPROJ_PATH" "$METADATA_JSON" "$REPO_META_JSON" \
     "$REPO_SHA" "$REPO_HAS_SHA" "$CTX_MODE" "$DO_SMOKE" "$SRC_CLASS" \
-    "$VRAM_BEFORE_BYTES" "$VRAM_PEAK_BYTES" "$VRAM_AFTER_BYTES" "$MTP_SMOKE_STATUS" "$MTP_DRAFT_TOKENS" "$MTP_DRAFT_ACCEPTED" <<'PY' || HUGS_BUILD_RC=$?
+    "$VRAM_BEFORE_BYTES" "$VRAM_PEAK_BYTES" "$VRAM_AFTER_BYTES" "$MTP_SMOKE_STATUS" "$MTP_DRAFT_TOKENS" "$MTP_DRAFT_ACCEPTED" "$MODEL_INTEGRATION_ID" <<'PY' || HUGS_BUILD_RC=$?
 import json, os, sys
 out, name, model_path, file_name, repo_id, gpu_device, eff_ctx, cpu_moe, \
     mmproj_path, metadata_raw, repo_meta_raw, repo_sha, repo_has_sha, \
-    ctx_mode, do_smoke, src_class, vram_before, vram_peak, vram_after, mtp_status, mtp_draft, mtp_accepted = sys.argv[1:]
+    ctx_mode, do_smoke, src_class, vram_before, vram_peak, vram_after, mtp_status, mtp_draft, mtp_accepted, integration_id = sys.argv[1:]
 metadata = json.loads(metadata_raw or '{}')
 repo_meta = json.loads(repo_meta_raw or '{}')
 model_id = 'hugs-' + name
@@ -1246,7 +1299,7 @@ if do_smoke == '1':
         'gpu_vram_after_bytes': int(vram_after or 0),
         'success': 1,
         'error': '',
-        'notes': f'fetch-model.sh smoke test: ctx={eff_ctx} ({ctx_mode}), device={gpu_device}, cpu-moe={cpu_moe or "none"}, mtp={mtp_status}, draft={mtp_draft}, accepted={mtp_accepted}',
+        'notes': f'fetch-model.sh smoke test: ctx={eff_ctx} ({ctx_mode}), device={gpu_device}, cpu-moe={cpu_moe or "none"}, mtp={mtp_status}, draft={mtp_draft}, accepted={mtp_accepted}, integration={integration_id or "default"}',
     }
 # Compute hf: tags from authoritative GGUF inspection (pipeline knows these
 # for certain; the fork's HF scanner may miss them for repos without Hub
@@ -1272,7 +1325,7 @@ if metadata.get('has_mtp'):
         f'({", ".join(metadata.get("mtp_tensor_sample", [])[:3])}), '
         f'but the fork\'s HF scanner may not have detected them. '
         f'Summarize what you find."')
-notes = f'registered by fetch-model.sh; ctx mode: {ctx_mode}'
+notes = f'registered by fetch-model.sh; ctx mode: {ctx_mode}; integration: {integration_id or "default"}'
 model = {
     'base_model_id': repo_id if src_class == 'hf' else '',
     'display_name': display,
@@ -1330,8 +1383,12 @@ if (( CUDA_SUPPORTED )) && (( DO_REGISTER )) && [[ -x "$CUDA_SERVER" ]]; then
   set_stage "cuda-smoke"
   CUDA_SMOKE_PORT="${CUDA_SMOKE_PORT:-18081}"
   CUDA_SMOKE_LOG="$(mktemp /tmp/fetch-model.cuda.XXXXXX.log)"
-  info "CUDA smoke test: ctx=$EFFECTIVE_CTX device=CUDA0"
-  env CUDA_VISIBLE_DEVICES=0 "$CUDA_SERVER" --model "$MODEL_PATH" --n-gpu-layers 99 \
+  info "CUDA smoke test: ctx=$EFFECTIVE_CTX device=CUDA0 integration=${MODEL_INTEGRATION_ID:-default}"
+  CUDA_LAUNCH_PREFIX=("$CUDA_SERVER")
+  if [[ -n "$MODEL_INTEGRATION_ID" ]]; then
+    CUDA_LAUNCH_PREFIX=(/usr/bin/python3 "$INTEGRATION_LAUNCHER" --integration "$MODEL_INTEGRATION_ID" --backend CUDA0 -- "$CUDA_SERVER")
+  fi
+  env CUDA_VISIBLE_DEVICES=0 "${CUDA_LAUNCH_PREFIX[@]}" --model "$MODEL_PATH" --n-gpu-layers 99 \
     --device CUDA0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 "${CTX_ARG[@]}" --jinja \
     --host 127.0.0.1 --port "$CUDA_SMOKE_PORT" >"$CUDA_SMOKE_LOG" 2>&1 &
   CUDA_SERVER_PID=$!
@@ -1369,7 +1426,8 @@ if (( CUDA_SUPPORTED )) && (( DO_REGISTER )) && [[ -x "$CUDA_SERVER" ]]; then
       --repository "$REPO_ID" --filename "$FILE" --model-path "$MODEL_PATH" \
       --effective-context "$EFFECTIVE_CTX" --native-context "$NATIVE_CTX" \
       --cpu-moe "$CPU_MOE" --description "$DESCRIPTION" \
-      --mmproj-path "$MMPROJ_PATH" --repo-meta-json "$REPO_META_JSON"
+      --mmproj-path "$MMPROJ_PATH" --repo-meta-json "$REPO_META_JSON" \
+      --integration-id "$MODEL_INTEGRATION_ID"
     cuda_rc=$?
     set -e
     rm -f "$CUDA_COMMAND_FILE"
@@ -1385,6 +1443,7 @@ printf '\n=== fetch-model summary ===\n'
 printf 'ROCm support: SUPPORTED — %s (id=%s)\n' "$GPU_DEVICE" "$NAME"
 printf 'CUDA support: %s (id=%s)\n' "$CUDA_SUMMARY" "$CUDA_NAME"
 printf 'Model: %s bytes, configured context: %s\n' "$(stat -c '%s' "$MODEL_PATH")" "$EFFECTIVE_CTX"
+printf 'Integration: %s\n' "${MODEL_INTEGRATION_ID:-default}"
 printf 'Warnings: %s\n' "${WARNINGS:-none}"
 
 deploy_live_config

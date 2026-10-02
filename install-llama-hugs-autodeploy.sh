@@ -1,26 +1,40 @@
 #!/usr/bin/env bash
-# One-time installation for automatic post-smoke-test llama-hugs deployment.
+# Install the user-owned Llama Hugs service and no-sudo deployment path.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-HELPER=/usr/local/sbin/llama-hugs-deploy
-SUDOERS=/etc/sudoers.d/llama-hugs-autodeploy
-SOURCE="$SCRIPT_DIR/llama-hugs-config.yaml"
+SOURCE_CONFIG="$SCRIPT_DIR/llama-hugs-config.yaml"
+USER_UNIT_SOURCE="$SCRIPT_DIR/llama-hugs.user.service"
+USER_UNIT_DIR="$HOME/.config/systemd/user"
+USER_UNIT="$USER_UNIT_DIR/llama-hugs.service"
+RUNTIME_CONFIG="$HOME/.config/llama-hugs/config.yaml"
+DEPLOY_HELPER="$SCRIPT_DIR/tools/llama-hugs-deploy"
 
-[[ "${EUID:-$(id -u)}" -eq 0 ]] || { printf '[ERR] run as root\n' >&2; exit 1; }
-[[ -f "$SOURCE" ]] || { printf '[ERR] source config missing: %s\n' "$SOURCE" >&2; exit 1; }
-[[ -f "$SCRIPT_DIR/tools/llama-hugs-deploy" ]] || { printf '[ERR] helper file missing: %s/tools/llama-hugs-deploy\n' "$SCRIPT_DIR" >&2; exit 1; }
-[[ -f /etc/llama-hugs/config.yaml ]] || { printf '[ERR] live config missing: /etc/llama-hugs/config.yaml\n' >&2; exit 1; }
+err() { printf '[ERR] %s\n' "$*" >&2; }
+ok() { printf '[OK]  %s\n' "$*"; }
+die() { err "$*"; exit 1; }
 
-install -o root -g root -m 0755 "$SCRIPT_DIR/tools/llama-hugs-deploy" "$HELPER"
-printf '%s\n' "rahlquist ALL=(root) NOPASSWD: $HELPER" > "$SUDOERS"
-chown root:root "$SUDOERS"
-chmod 0440 "$SUDOERS"
+[[ "${EUID:-$(id -u)}" -ne 0 ]] || die 'run as rahlquist, not root'
+[[ -f "$SOURCE_CONFIG" ]] || die "source config missing: $SOURCE_CONFIG"
+[[ -f "$USER_UNIT_SOURCE" ]] || die "user service unit missing: $USER_UNIT_SOURCE"
+[[ -x "$DEPLOY_HELPER" ]] || die "user deploy helper missing or not executable: $DEPLOY_HELPER"
 
-if command -v visudo >/dev/null 2>&1; then
-  visudo -cf "$SUDOERS"
+if systemctl is-active --quiet llama-hugs.service; then
+  die 'system Llama Hugs service is still active; one-time migration step: sudo systemctl disable --now llama-hugs.service, then rerun this script'
 fi
 
-printf '[OK] installed %s\n' "$HELPER"
-printf '[OK] installed %s\n' "$SUDOERS"
-printf '[OK] test with: sudo -n %s\n' "$HELPER"
+linger="$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null || true)"
+[[ "$linger" == yes ]] || die 'user lingering is not enabled; one-time admin step required: sudo loginctl enable-linger rahlquist'
+
+mkdir -p -- "$USER_UNIT_DIR" "$(dirname "$RUNTIME_CONFIG")"
+if [[ -f "$USER_UNIT" ]]; then
+  unit_backup="${USER_UNIT}.bak.$(date +%Y%m%d%H%M%S)"
+  cp -p -- "$USER_UNIT" "$unit_backup"
+  ok "saved prior user unit: $unit_backup"
+fi
+install -m 0644 -- "$USER_UNIT_SOURCE" "$USER_UNIT"
+
+systemctl --user daemon-reload
+systemctl --user enable llama-hugs.service
+SOURCE_CONFIG="$SOURCE_CONFIG" "$DEPLOY_HELPER"
+ok 'user Llama Hugs installed; model deployment no longer invokes sudo'

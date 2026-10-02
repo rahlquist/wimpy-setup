@@ -94,6 +94,12 @@ def read_value(handle: BinaryIO, value_type: int) -> Any:
         return struct.unpack(SCALAR_FORMATS[value_type], read_exact(handle, SCALAR_SIZE[value_type]))[0]
     if value_type == 8:
         return read_string(handle)
+    if value_type == 9:  # array: element type + count + values
+        element_type = read_u32(handle)
+        count = read_u64(handle)
+        if count > 1_000_000:
+            raise ValueError(f"unreasonable selected GGUF array length {count}")
+        return [read_value(handle, element_type) for _ in range(count)]
     raise ValueError(f"cannot read selected GGUF metadata type {value_type}")
 
 
@@ -193,9 +199,22 @@ def read_metadata(path: Path) -> dict[str, Any]:
         "mtp_tensor_sample": mtp_tensors[:5],
         "mtp_flag": "--spec-type draft-mtp" if has_mtp else None,
     }
+    kv_head_counts = output["attention_head_count_kv"]
+    if isinstance(kv_head_counts, list):
+        block_count = output["block_count"]
+        if (
+            type(block_count) is not int
+            or len(kv_head_counts) != block_count
+            or not all(type(heads) is int and heads > 0 for heads in kv_head_counts)
+        ):
+            raise ValueError(
+                "GGUF attention_head_count_kv array must contain one positive integer per block"
+            )
     for field in ("context_length", "block_count", "expert_count", "expert_used_count",
                   "embedding_length", "attention_head_count", "attention_head_count_kv",
                   "attention_key_length", "attention_value_length"):
+        if field == "attention_head_count_kv" and isinstance(output[field], list):
+            continue
         if output[field] is not None and not isinstance(output[field], int):
             raise ValueError(f"GGUF {field} has an invalid type")
     return output

@@ -1,0 +1,51 @@
+{
+  "alias": "swift-1-5-qwen3-8-27b-gsq-rco-iq2-xs-mtp-cuda",
+  "description": "Swift15-GSQfix-V1MIX-ISTAalloc-IQ2_XS MTP",
+  "file_sha256": null,
+  "file_size_bytes": null,
+  "filename": "Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ2_XS-mtp.gguf",
+  "gguf": {
+    "ambiguous_vision": false,
+    "architecture": "qwen35",
+    "attention_head_count": 24,
+    "attention_head_count_kv": 4,
+    "attention_key_length": 256,
+    "attention_value_length": 256,
+    "block_count": 65,
+    "context_length": 262144,
+    "description": "",
+    "embedded_projector": false,
+    "embedding_length": 5120,
+    "expert_count": 0,
+    "expert_used_count": 0,
+    "has_mtp": true,
+    "mtp_flag": "--spec-type draft-mtp",
+    "mtp_tensor_sample": [
+      "blk.64.nextn.eh_proj.weight",
+      "blk.64.nextn.shared_head_norm.weight",
+      "blk.64.nextn.enorm.weight",
+      "blk.64.nextn.hnorm.weight"
+    ],
+    "multimodal": false,
+    "name": "Swift15-GSQfix-V1MIX-ISTAalloc-IQ2_XS MTP",
+    "needs_external_projector": false
+  },
+  "has_checksum": false,
+  "has_mtp": true,
+  "mmproj_filename": null,
+  "mmproj_path": null,
+  "model_path": "/home/rahlquist/.cache/llama.cpp/Swift-1.5-Qwen3.8-27B-GSQ-RCO-IQ2_XS-mtp.gguf",
+  "mtp_flag": "--spec-type draft-mtp",
+  "mtp_tensor_sample": [
+    "blk.64.nextn.eh_proj.weight",
+    "blk.64.nextn.shared_head_norm.weight",
+    "blk.64.nextn.enorm.weight"
+  ],
+  "n_cpu_moe": null,
+  "native_context": 262144,
+  "pipeline_tag": null,
+  "repo_url": "",
+  "repository": "local/local",
+  "requested_context": 65536,
+  "vision": false
+}

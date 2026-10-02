@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Add a llama-hugs GPU variant and its metadata sidecar transactionally."""
 from __future__ import annotations
-import argparse, json, os, re, shutil, subprocess, sys, tempfile
+import argparse, json, os, re, shlex, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
 
@@ -26,6 +26,7 @@ def main() -> int:
     ap.add_argument("--description", default="")
     ap.add_argument("--mmproj-path", default="")
     ap.add_argument("--repo-meta-json", default="")
+    ap.add_argument("--integration-id", default="")
     args = ap.parse_args()
 
     cfg = Path(args.config)
@@ -74,7 +75,7 @@ def main() -> int:
     if member_pos < 0:
         raise RuntimeError(f"members list not found in group: {args.group}")
     insert_at = group_start + member_pos + 1
-    group_line = f'      - "{args.name}"\n'
+    group_line = f'    - "{args.name}"\n'
 
     command = Path(args.command_file).read_text(encoding="utf-8").splitlines()
     metadata = json.loads(args.metadata_json)
@@ -90,12 +91,22 @@ def main() -> int:
             if "--n-gpu-layers" in line and "--spec-type" not in line:
                 new_command.append("--spec-type draft-mtp")
         command = new_command
+    if args.integration_id:
+        launcher = Path(__file__).resolve().parent / "model_integrations" / "launcher.py"
+        base_command = shlex.split(command[0])
+        command[0] = shlex.join([
+            "/usr/bin/python3", str(launcher),
+            "--integration", args.integration_id,
+            "--backend", "CUDA0", "--", *base_command,
+        ])
     block = [f'{child_indent}"{args.name}":', f'{field_indent}ttl: {args.ttl}', f'{field_indent}env: ["{args.env}"]']
-    detail_lines = []
-    if mmproj_path:
-        detail_lines.append(f"{field_indent}capabilities:")
-        detail_lines.append(f'{field_indent}  in: ["text", "image"]')
-        detail_lines.append(f'{field_indent}  out: ["text"]')
+    cap_in = '["text", "image"]' if mmproj_path else '["text"]'
+    detail_lines = [
+        f"{field_indent}capabilities:",
+        f"{field_indent}  in: {cap_in}",
+        f'{field_indent}  out: ["text"]',
+        f"{field_indent}  context: {args.effective_context}",
+    ]
     detail_lines.append(f"{field_indent}metadata:")
     detail_lines.append(f"{field_indent}  source_repo: {json.dumps(args.repository)}")
     detail_lines.append(f"{field_indent}  repo_url: {json.dumps(repo_meta.get('repo_url', ''))}")
@@ -109,6 +120,8 @@ def main() -> int:
         detail_lines.append(f"{field_indent}  mtp: true")
         detail_lines.append(f'{field_indent}  mtp_flag: "--spec-type draft-mtp"')
     detail_lines.append(f"{field_indent}  pipeline_tag: {json.dumps(repo_meta.get('pipeline_tag', '') or '')}")
+    if args.integration_id:
+        detail_lines.append(f"{field_indent}  integration_id: {json.dumps(args.integration_id)}")
     block += detail_lines + [f'{field_indent}cmd: |'] + [cmd_indent + line for line in command]
     new_text = text[:insert_at] + group_line + text[insert_at:]
     new_lines = new_text.splitlines()
@@ -134,6 +147,7 @@ def main() -> int:
         "file_sha256": repo_meta.get("file_sha256") or None,
         "has_checksum": bool(repo_meta.get("has_checksum")),
         "pipeline_tag": repo_meta.get("pipeline_tag", "") or None,
+        "integration_id": args.integration_id or None,
         "gguf": metadata, "description": args.description or metadata.get("name") or f"GGUF from {args.repository}",
     }
     metadata_dir = Path(args.metadata_dir)

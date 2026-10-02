@@ -74,10 +74,10 @@ git status
 GITBLOCK
 
 echo
-echo "== deployment + live verification (run manually with sudo) =="
+echo "== deployment + live verification (user service; no sudo) =="
 cat <<'DEPLOYBLOCK'
 cd /home/rahlquist/wimpy-setup
-sudo /usr/local/sbin/llama-hugs-deploy
+./tools/llama-hugs-deploy
 
 curl -fsS http://127.0.0.1:8080/v1/models \
   | python3 -c 'import json,sys; ids={x["id"] for x in json.load(sys.stdin)["data"]}; print("\n".join(sorted(x for x in ids if any(k in x for k in ("muse-glimmer","fable-fus")))))'
