@@ -23,23 +23,32 @@ ok()  { printf '[OK]  %s\n' "$*"; }
 
 [[ "$(id -un)" == "rahlquist" ]] || { err 'run as rahlquist'; exit 1; }
 
+# Authenticate once up front. If sudo cannot prompt or credentials are wrong,
+# fail here instead of silently treating unreadable files as absent.
+sudo -v || { err 'sudo authentication failed; no files changed'; exit 1; }
+
 if sudo test -e "$TARGET"; then
   err "$TARGET still exists — use remove-root-llama-hugs-deploy.sh instead"
   exit 1
 fi
 ok "confirmed removed: $TARGET"
 
-echo 'Locating the grant (listing via sudo — the dir is not user-readable)...'
-# Read the candidate list with sudo; a plain glob expands to a literal here.
+echo 'Locating the grant in active sudoers files...'
+# sudo's @includedir ignores names containing a dot and names ending in '~'.
+# Exclude timestamped backups: searching/editing them is unsafe and caused the
+# previous run to back up backups while leaving the active file untouched.
 LIST="$(mktemp)"
 trap 'rm -f "$LIST"' EXIT
-sudo find /etc/sudoers.d /etc/sudoers -maxdepth 1 -type f 2>/dev/null | sort -u > "$LIST"
-echo "  inspected $(wc -l < "$LIST") sudoers file(s)"
+{
+  sudo find /etc/sudoers.d -maxdepth 1 -type f ! -name '*.*' ! -name '*~' -print
+  printf '%s\n' /etc/sudoers
+} | sort -u > "$LIST"
+echo "  inspected $(wc -l < "$LIST") active sudoers file(s)"
 
 GRANT_FILES=()
 while IFS= read -r f; do
   [[ -n "$f" ]] || continue
-  if sudo grep -qF "$TARGET" "$f" 2>/dev/null; then
+  if sudo grep -qF "$TARGET" "$f"; then
     GRANT_FILES+=("$f")
     ok "grant found in: $f"
   fi
@@ -64,9 +73,41 @@ for f in "${GRANT_FILES[@]}"; do
   ok "backed up: ${f}.bak.${STAMP}"
 done
 
-# Strip only lines naming the deleted helper; leave all other grants intact.
+# Remove only matching lines. Use an atomic replacement that preserves mode
+# and ownership. Unlike `grep -v ... && ...`, this works when the grant is the
+# file's ONLY line (grep then returns 1 because its output is empty).
 for f in "${GRANT_FILES[@]}"; do
-  sudo sh -c "grep -vF '$TARGET' '$f' > '$f.new' && cat '$f.new' > '$f' && rm -f '$f.new'"
+  sudo /usr/bin/python3 - "$TARGET" "$f" <<'PY'
+import os
+import stat
+import sys
+import tempfile
+
+needle = sys.argv[1].encode()
+path = sys.argv[2]
+with open(path, "rb") as stream:
+    original = stream.readlines()
+kept = [line for line in original if needle not in line]
+if len(kept) == len(original):
+    raise SystemExit(f"no matching grant line found in {path}; refusing to rewrite")
+st = os.stat(path)
+fd, temp_path = tempfile.mkstemp(prefix=".sudoers-cleanup-", dir=os.path.dirname(path))
+try:
+    with os.fdopen(fd, "wb") as stream:
+        stream.writelines(kept)
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.chown(temp_path, st.st_uid, st.st_gid)
+    os.chmod(temp_path, stat.S_IMODE(st.st_mode))
+    os.replace(temp_path, path)
+except BaseException:
+    try:
+        os.unlink(temp_path)
+    except FileNotFoundError:
+        pass
+    raise
+print(f"removed {len(original) - len(kept)} matching line(s) from {path}")
+PY
   ok "removed grant line(s) from: $f"
 done
 
