@@ -29,6 +29,7 @@ benching/watcher.log
 # generated runtime config — local safety copies, never source.
 *.bak.*
 llama-hugs-config.generated.yaml
+removed-root-llama-hugs-deploy-*.txt
 
 # ── Local fetch/smoke evidence — never publish ──────────────────────────────
 fetch-model-*.run.log
