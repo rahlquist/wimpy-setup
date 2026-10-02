@@ -120,6 +120,25 @@ curl http://wimpy.home.lan:8080/v1/models   # verify wimpy reachable
   effective custom llama.cpp parameters.
 - `llama-hugs.service` — the systemd unit (also installed by `05-llama-cpp.sh`).
 
+### Linting the config
+
+Run the linter before deploying the source config:
+
+```bash
+/usr/bin/python3 tools/lint_llama_hugs_config.py
+```
+
+To validate the generated/live config also requires the persistent SQLite store:
+
+```bash
+/usr/bin/python3 tools/lint_llama_hugs_config.py /etc/llama-hugs/config.yaml --require-store
+```
+
+The linter checks YAML duplicate keys, group/model references, dynamic port
+placeholders, local model paths, GPU pins/devices, and context warnings. The
+source config intentionally omits `store.path`; the deployment generator adds
+it to the live config.
+
 ### Adding a model
 
 ```bash
@@ -200,19 +219,27 @@ base model and projector must come from the same model repository/version. A
 projector from another model family or size may load incorrectly or fail with a
 dimension mismatch.
 
-**One-time automatic deployment setup:**
+**Llama Hugs deployment without routine sudo:**
 
-Run this once as root on wimpy from the repository directory:
+Llama Hugs runs as the `rahlquist` user. Its source config remains in this
+repository; the generated runtime config lives at
+`~/.config/llama-hugs/config.yaml`, managed by the user-owned
+`tools/llama-hugs-deploy` helper. After migration, model fetch/registration and
+launcher deployment run without sudo and restart the user service with
+`systemctl --user`.
+
+For a one-time migration from the former system service, stop and disable that
+service once, then run the installer as `rahlquist`:
 
 ```bash
-sudo ./install-llama-hugs-autodeploy.sh
+sudo systemctl disable --now llama-hugs.service
+./install-llama-hugs-autodeploy.sh
 ```
 
-It installs a root-owned, fixed-path deployment helper and a narrow sudoers
-rule. The helper backs up the live config, atomically installs the validated
-repository config, waits for llama-hugs to expose every configured model ID,
-and rolls back automatically if live validation fails. The normal fetch path
-deploys automatically after smoke testing; it does not preload the model.
+The installer installs the user unit, generates the runtime config, starts the
+service, and verifies the live API. `Linger=yes` is required for the user
+service to start at boot without an interactive login. Subsequent deployments
+automatically back up and validate the user config; no sudo is used.
 
 **Key flags:**
 
