@@ -18,8 +18,10 @@ FIXTURE = Path(os.environ.get(
     "OVISOCR_TEST_IMAGE",
     str(Path.home() / "ovisocr/tests/fixtures/ocr-smoke.png"),
 ))
+# Renamed to the 'lc-' prefix by the 2026-10-01 integrations pass. Override with
+# LLAMA_HUGS_EXPECT_MODEL if the alias changes again.
 EXPECTED_HUGS_MODEL = os.environ.get(
-    "LLAMA_HUGS_EXPECT_MODEL", "hugs-qwen3-8-27b-ktopt-cuda"
+    "LLAMA_HUGS_EXPECT_MODEL", "lc-qwen3-8-27b-ktopt-cuda"
 )
 
 
