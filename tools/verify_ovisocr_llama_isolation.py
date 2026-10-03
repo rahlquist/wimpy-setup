@@ -68,10 +68,10 @@ def hugs_model_ids() -> set[str]:
     return ids
 
 
-def ocr_multipart(image: bytes) -> dict:
+def ocr_multipart(image: bytes, model: str = "ovisocr2") -> dict:
     boundary = "----quill-of-hermes-" + uuid.uuid4().hex
     body = b"".join([
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\novisocr2\r\n".encode(),
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n{model}\r\n".encode(),
         f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"ocr-smoke.png\"\r\nContent-Type: image/png\r\n\r\n".encode(),
         image,
         f"\r\n--{boundary}--\r\n".encode(),
@@ -108,13 +108,20 @@ def main() -> int:
     ovis_env = dict(item.split("=", 1) for item in shlex.split(env_result.stdout) if "=" in item)
     required_env = {
         "OVISOCR_CLI": str(Path.home() / "ovisocr/llama-mtmd-cli-patched"),
-        "LLAMA_ARG_DEVICE": "none",
-        "LLAMA_ARG_N_GPU_LAYERS": "0",
-        "MTMD_BACKEND_DEVICE": "none",
+        "CUDA_VISIBLE_DEVICES": "0",
         "LLAMA_ARG_THREADS": "4",
     }
     for key, expected in required_env.items():
-        require(ovis_env.get(key) == expected, f"Ovis isolation setting {key}={ovis_env.get(key)!r}; expected {expected!r}")
+        require(ovis_env.get(key) == expected, f"Ovis CUDA setting {key}={ovis_env.get(key)!r}; expected {expected!r}")
+    for key in ("LLAMA_ARG_DEVICE", "LLAMA_ARG_N_GPU_LAYERS", "MTMD_BACKEND_DEVICE"):
+        require(key not in ovis_env or ovis_env[key] != "none", f"Ovis still forces CPU-only setting {key}=none")
+    cli_devices = subprocess.run(
+        [ovis_env["OVISOCR_CLI"], "--list-devices"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    require("CUDA0: NVIDIA GeForce RTX 5060 Ti" in cli_devices, "Ovis OCR CLI has no CUDA0 device")
 
     health, _ = fetch_json(f"{OVIS_URL}/health")
     require(health.get("ok") is True, "Ovis health check failed")
@@ -128,12 +135,15 @@ def main() -> int:
     require("holo" not in html.lower(), "unexpected Holo model appears in Ovis page")
     require("no-store" in page_headers.get("cache-control", "").lower(), "Ovis page is cacheable")
 
-    result = ocr_multipart(FIXTURE.read_bytes())
-    markdown = result.get("markdown", "")
-    normalized = markdown.upper()
-    require(result.get("model") == "ovisocr2", f"unexpected OCR model response: {result.get('model')!r}")
-    require(result.get("page_count") == 1, f"expected one OCR page, got {result.get('page_count')!r}")
-    require("OVIS OCR SMOKE TEST" in normalized and "ORANGE 42" in normalized, "OCR smoke text was not recognized")
+    image = FIXTURE.read_bytes()
+    ocr_results = {}
+    for model in ("ovisocr2", "teleocr"):
+        result = ocr_multipart(image, model=model)
+        normalized = result.get("markdown", "").upper()
+        require(result.get("model") == model, f"unexpected OCR model response for {model}: {result.get('model')!r}")
+        require(result.get("page_count") == 1, f"expected one OCR page from {model}, got {result.get('page_count')!r}")
+        require("OVIS OCR SMOKE TEST" in normalized and "ORANGE 42" in normalized, f"{model} did not recognize the OCR smoke text")
+        ocr_results[model] = result
 
     ovis_after = unit_snapshot("ovisocr.service")
     hugs_after = unit_snapshot("llama-hugs.service")
@@ -145,9 +155,10 @@ def main() -> int:
     require(hugs_after.get("ActiveEnterTimestamp") == hugs_before.get("ActiveEnterTimestamp"), "Llama Hugs restarted during Ovis OCR")
     require(hugs_ids_after == hugs_ids_before, "Llama Hugs model inventory changed during Ovis OCR")
 
-    print(f"PASS Ovis OCR: model=ovisocr2, pages={result['page_count']}, elapsed={result['elapsed_seconds']:.3f}s")
+    for model, result in ocr_results.items():
+        print(f"PASS Ovis OCR CUDA: model={model}, pages={result['page_count']}, elapsed={result['elapsed_seconds']:.3f}s")
     print(f"PASS Ovis page: OvisOCR2 + TeleOCR only; Cache-Control={page_headers['cache-control']}")
-    print(f"PASS CPU isolation: {len(required_env)} service-local settings verified")
+    print(f"PASS CUDA service settings: CUDA0 visible; {len(required_env)} environment settings verified")
     print(f"PASS Llama Hugs unchanged: PID={hugs_after['MainPID']}, models={len(hugs_ids_after)}")
     return 0
 
