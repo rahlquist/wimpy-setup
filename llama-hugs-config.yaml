@@ -104,7 +104,7 @@ models:
     capabilities:
       in: ["text"]
       out: ["text"]
-      tools: false
+      tools: true
       context: 262144
     metadata:
       source_repo: "pfeifferj/Ornith-1.5-35B-A3B-GSQ-RCO-GGUF"

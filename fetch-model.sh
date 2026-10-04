@@ -168,6 +168,9 @@ VRAM_AFTER_BYTES=0
 MTP_SMOKE_STATUS="not-applicable"
 MTP_DRAFT_TOKENS=0
 MTP_DRAFT_ACCEPTED=0
+# Tool-call probe result: working | unverified | not-applicable. Defaults to
+# not-applicable so a --no-smoke run never claims a capability it did not test.
+TOOL_SMOKE_STATUS="not-applicable"
 read_gpu_vram_bytes() {
   local device="$1" value=0 file
   if [[ "$device" == ROCm* ]]; then
@@ -763,84 +766,6 @@ fetch_mmproj() {
 # Fetch the external projector for multimodal models (HF-sourced only).
 fetch_mmproj
 
-# --- Assemble the per-model detail block (name/description/capabilities/metadata)
-# This feeds the documented llama-hugs per-model fields (config-schema.json):
-#   name, description, capabilities.{in,out,tools,context}, metadata (arbitrary).
-# We record: source repo + URL, file size, HF content sha256 (when advertised),
-# vision capability + the namespaced mmproj filename we assigned, MTP presence
-# and the exact llama.cpp flag needed (--spec-type draft-mtp).
-DETAILS_FILE="$(mktemp /tmp/fetch-model.details.XXXXXX)"
-python3 - "$DETAILS_FILE" "$REPO_META_JSON" "$METADATA_JSON" "$MMPROJ_PATH" "$EFFECTIVE_CTX" "$NATIVE_CTX" "$MODEL_INTEGRATION_ID" <<'PY'
-import json, sys
-out, repo_meta_raw, gguf_raw, mmproj, eff_ctx, native_ctx, integration_id = sys.argv[1:]
-repo_meta = json.loads(repo_meta_raw or '{}')
-gguf = json.loads(gguf_raw or '{}')
-mmproj_path = mmproj or ''
-vision = bool(mmproj_path) or 'image' in (repo_meta.get('pipeline_tag','') or '').lower()
-has_mtp = bool(gguf.get('has_mtp'))
-name = (repo_meta.get('repo_name') or gguf.get('name') or '').strip()[:128]
-desc = (repo_meta.get('description') or gguf.get('description') or '').strip()[:1024]
-lines = []
-if name:
-    lines.append(f'name: {json.dumps(name)}')
-if desc:
-    lines.append(f'description: {json.dumps(desc)}')
-cap_in = ['text'] + (['image'] if vision else [])
-cap = {
-    'in': cap_in,
-    'out': ['text'],
-    'tools': False,
-    'context': int(eff_ctx or native_ctx or 0) or 0,
-}
-lines.append('capabilities:')
-for k, v in cap.items():
-    if isinstance(v, list):
-        items = ', '.join(json.dumps(x) for x in v)
-        lines.append(f'  {k}: [{items}]')
-    else:
-        lines.append(f'  {k}: {json.dumps(v)}')
-meta = {
-    'source_repo': repo_meta.get('repo_id',''),
-    'repo_url': repo_meta.get('repo_url',''),
-    'file_size_bytes': repo_meta.get('file_size_bytes'),
-    'file_sha256': repo_meta.get('file_sha256') or None,
-    'has_checksum': bool(repo_meta.get('has_checksum')),
-    'vision': vision,
-    'mmproj': mmproj_path or None,
-    'mmproj_filename': mmproj_path.rsplit('/',1)[-1] if mmproj_path else None,
-    'mtp': has_mtp,
-    'mtp_flag': '--spec-type draft-mtp' if has_mtp else None,
-    'mtp_tensor_sample': (gguf.get('mtp_tensor_sample') or [])[:3],
-    'pipeline_tag': repo_meta.get('pipeline_tag','') or None,
-    'integration_id': integration_id or None,
-}
-lines.append('metadata:')
-# Manual block-style YAML (relative indent under the metadata: key). Avoids the
-# flow-style quoting/multiline problems of json.dumps output.
-def yaml_scalar(v):
-    if v is None:
-        return 'null'
-    if isinstance(v, bool):
-        return 'true' if v else 'false'
-    if isinstance(v, (int, float)):
-        return str(v)
-    return json.dumps(str(v))
-for k in ('source_repo', 'repo_url', 'file_size_bytes', 'file_sha256', 'has_checksum',
-          'vision', 'mmproj', 'mmproj_filename', 'mtp', 'mtp_flag', 'pipeline_tag', 'integration_id'):
-    v = meta.get(k)
-    lines.append(f'  {k}: {yaml_scalar(v)}')
-if meta.get('mtp_tensor_sample'):
-    lines.append('  mtp_tensor_sample:')
-    for t in meta['mtp_tensor_sample'][:3]:
-        lines.append(f'    - {json.dumps(str(t))}')
-open(out, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
-PY
-DETAILS_RC=$?
-if (( DETAILS_RC != 0 )); then
-  rm -f "$DETAILS_FILE"
-  die "failed to assemble model detail block"
-fi
-
 MOE_ARG=()
 [[ -n "$CPU_MOE" ]] && MOE_ARG=(--n-cpu-moe "$CPU_MOE")
 CTX_ARG=()
@@ -1040,6 +965,67 @@ PY
     ok "MTP smoke activity: draft=$MTP_DRAFT_TOKENS accepted=$MTP_DRAFT_ACCEPTED"
   fi
   rm -f -- /tmp/fetch-model.mtp.$$
+  # Tool-call probe: a trivial tool definition on a short n_predict budget.
+  # This deliberately does NOT test reasoning-budget exhaustion (a consumer-side
+  # max_tokens concern, not a model property) — it only asks whether the model
+  # emits a well-formed tool_calls block at all. A 64-token cap keeps it fast
+  # and immune to the reasoning-truncation trap that makes thinking models look
+  # broken. Result is a capability CLAIM, like the MTP draft check: tool support
+  # is inferred from behavior, never asserted at load time, so a miss warns
+  # rather than failing registration.
+  local tool_http tool_body tool_rc
+  tool_http="$(curl -sS --max-time 60 -o /tmp/fetch-model.tool.$$ \
+    -w '%{http_code}' "http://127.0.0.1:$SMOKE_PORT/v1/chat/completions" \
+    -H 'Content-Type: application/json' \
+    -d '{"messages":[{"role":"user","content":"What is the weather in Paris? Use the tool."}],"tools":[{"type":"function","function":{"name":"get_weather","description":"Get the current weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"max_tokens":128,"temperature":0}' 2>/dev/null || true)"
+  tool_body="$(cat /tmp/fetch-model.tool.$$ 2>/dev/null || true)"
+  rm -f -- /tmp/fetch-model.tool.$$
+  set +e
+  python3 - "$tool_body" "$tool_http" > /tmp/fetch-model.toolrc.$$ <<'PY'
+import json, sys
+raw, http_code = sys.argv[1], sys.argv[2]
+try:
+    if int(http_code) < 200 or int(http_code) >= 300:
+        raise SystemExit(1)
+except ValueError:
+    raise SystemExit(1)
+if not raw.strip():
+    raise SystemExit(1)
+try:
+    response = json.loads(raw)
+except (json.JSONDecodeError, ValueError):
+    raise SystemExit(1)
+if isinstance(response.get('error'), str) and response['error'].strip():
+    raise SystemExit(1)
+choices = response.get('choices') or []
+if not choices:
+    raise SystemExit(1)
+calls = (choices[0].get('message') or {}).get('tool_calls')
+if not isinstance(calls, list) or not calls:
+    raise SystemExit(1)
+fn = calls[0].get('function') or {}
+if not fn.get('name'):
+    raise SystemExit(1)
+try:
+    json.loads(fn.get('arguments') or '{}')
+except (json.JSONDecodeError, ValueError):
+    raise SystemExit(1)
+PY
+  tool_rc=$?
+  set -e
+  rm -f -- /tmp/fetch-model.toolrc.$$
+  TOOL_SMOKE_STATUS="unverified"
+  if (( tool_rc == 0 )); then
+    TOOL_SMOKE_STATUS="working"
+    ok "tool-call smoke activity: well-formed tool_calls emitted"
+  else
+    # Not fatal: plenty of legitimate models have no tool support. Record the
+    # miss so the operator can decide, and warn only when the runtime is about
+    # to be told the opposite.
+    warn "tool-call smoke probe produced no tool_calls block; model may lack tool support"
+    warn "If this model does support tools, add its id to TOOL_BASES in /opt/llama-hugs/gen-config.py"
+    warn "  (that allowlist OVERRIDES the capabilities.tools value below, so setting it here alone has no effect)"
+  fi
   ok "loaded, generated, and healthy at ctx=$EFFECTIVE_CTX on $GPU_DEVICE"
   if [[ -n "$CPU_MOE" ]]; then info "intentional MoE expert CPU placement: first $CPU_MOE blocks"; fi
   cleanup; SERVER_PID=""; rm -f -- "$SMOKE_LOG"; SMOKE_LOG=""
@@ -1050,6 +1036,100 @@ if (( DO_SMOKE )); then
   smoke_test || die "smoke test failed; model was not registered"
 else
   warn 'smoke test skipped.'
+fi
+
+# --- Assemble the per-model detail block (name/description/capabilities/metadata)
+# This feeds the documented llama-hugs per-model fields (config-schema.json):
+#   name, description, capabilities.{in,out,tools,context}, metadata (arbitrary).
+# We record: source repo + URL, file size, HF content sha256 (when advertised),
+# vision capability + the namespaced mmproj filename we assigned, MTP presence
+# and the exact llama.cpp flag needed (--spec-type draft-mtp).
+DETAILS_FILE="$(mktemp /tmp/fetch-model.details.XXXXXX)"
+python3 - "$DETAILS_FILE" "$REPO_META_JSON" "$METADATA_JSON" "$MMPROJ_PATH" "$EFFECTIVE_CTX" "$NATIVE_CTX" "$MODEL_INTEGRATION_ID" "$TOOL_SMOKE_STATUS" <<'PY'
+import json, sys
+out, repo_meta_raw, gguf_raw, mmproj, eff_ctx, native_ctx, integration_id, tool_status = sys.argv[1:9]
+repo_meta = json.loads(repo_meta_raw or '{}')
+gguf = json.loads(gguf_raw or '{}')
+mmproj_path = mmproj or ''
+vision = bool(mmproj_path) or 'image' in (repo_meta.get('pipeline_tag','') or '').lower()
+has_mtp = bool(gguf.get('has_mtp'))
+name = (repo_meta.get('repo_name') or gguf.get('name') or '').strip()[:128]
+desc = (repo_meta.get('description') or gguf.get('description') or '').strip()[:1024]
+lines = []
+if name:
+    lines.append(f'name: {json.dumps(name)}')
+if desc:
+    lines.append(f'description: {json.dumps(desc)}')
+cap_in = ['text'] + (['image'] if vision else [])
+# Tool support is a probed CLAIM, not a load-time fact. The smoke test emits a
+# real tool_calls block when the model supports tools; record that instead of
+# hardcoding False so the source config stops lying about known-good models.
+cap = {
+    'in': cap_in,
+    'out': ['text'],
+    'tools': tool_status == 'working',
+    'context': int(eff_ctx or native_ctx or 0) or 0,
+}
+lines.append('capabilities:')
+for k, v in cap.items():
+    if isinstance(v, list):
+        items = ', '.join(json.dumps(x) for x in v)
+        lines.append(f'  {k}: [{items}]')
+    else:
+        lines.append(f'  {k}: {json.dumps(v)}')
+meta = {
+    'source_repo': repo_meta.get('repo_id',''),
+    'repo_url': repo_meta.get('repo_url',''),
+    'file_size_bytes': repo_meta.get('file_size_bytes'),
+    'file_sha256': repo_meta.get('file_sha256') or None,
+    'has_checksum': bool(repo_meta.get('has_checksum')),
+    'vision': vision,
+    'mmproj': mmproj_path or None,
+    'mmproj_filename': mmproj_path.rsplit('/',1)[-1] if mmproj_path else None,
+    'mtp': has_mtp,
+    'mtp_flag': '--spec-type draft-mtp' if has_mtp else None,
+    'mtp_tensor_sample': (gguf.get('mtp_tensor_sample') or [])[:3],
+    'pipeline_tag': repo_meta.get('pipeline_tag','') or None,
+    'integration_id': integration_id or None,
+}
+lines.append('metadata:')
+# Manual block-style YAML (relative indent under the metadata: key). Avoids the
+# flow-style quoting/multiline problems of json.dumps output.
+def yaml_scalar(v):
+    if v is None:
+        return 'null'
+    if isinstance(v, bool):
+        return 'true' if v else 'false'
+    if isinstance(v, (int, float)):
+        return str(v)
+    return json.dumps(str(v))
+for k in ('source_repo', 'repo_url', 'file_size_bytes', 'file_sha256', 'has_checksum',
+          'vision', 'mmproj', 'mmproj_filename', 'mtp', 'mtp_flag', 'pipeline_tag', 'integration_id'):
+    v = meta.get(k)
+    lines.append(f'  {k}: {yaml_scalar(v)}')
+if meta.get('mtp_tensor_sample'):
+    lines.append('  mtp_tensor_sample:')
+    for t in meta['mtp_tensor_sample'][:3]:
+        lines.append(f'    - {json.dumps(str(t))}')
+open(out, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
+PY
+DETAILS_RC=$?
+if (( DETAILS_RC != 0 )); then
+  rm -f "$DETAILS_FILE"
+  die "failed to assemble model detail block"
+fi
+
+# gen-config.py recomputes capabilities.tools from its own TOOL_BASES allowlist
+# and OVERRIDES whatever this script writes into the source config. A model
+# probed as tool-capable but absent from that list will silently ship with tools
+# stripped in the live runtime, so say so here rather than let it look correct
+# in the source file and fail later from the consumer side.
+if [[ "$TOOL_SMOKE_STATUS" == "working" ]]; then
+  GEN_CONFIG_PATH="${LLAMA_HUGS_GEN_CONFIG:-/opt/llama-hugs/gen-config.py}"
+  if [[ -r "$GEN_CONFIG_PATH" ]] && ! grep -qF "\"$NAME\"" "$GEN_CONFIG_PATH"; then
+    warn "model is tool-capable but '$NAME' is not in TOOL_BASES in $GEN_CONFIG_PATH"
+    warn "the generator will strip capabilities.tools in the deployed config; add the id there to make it stick"
+  fi
 fi
 
 deploy_live_config(){
@@ -1245,11 +1325,11 @@ if (( ! PRIMARY_ALREADY )); then
   python3 - "$HUGS_PAYLOAD" "$NAME" "$MODEL_PATH" "$FILE" "$REPO_ID" "$GPU_DEVICE" \
     "$EFFECTIVE_CTX" "$CPU_MOE" "$MMPROJ_PATH" "$METADATA_JSON" "$REPO_META_JSON" \
     "$REPO_SHA" "$REPO_HAS_SHA" "$CTX_MODE" "$DO_SMOKE" "$SRC_CLASS" \
-    "$VRAM_BEFORE_BYTES" "$VRAM_PEAK_BYTES" "$VRAM_AFTER_BYTES" "$MTP_SMOKE_STATUS" "$MTP_DRAFT_TOKENS" "$MTP_DRAFT_ACCEPTED" "$MODEL_INTEGRATION_ID" <<'PY' || HUGS_BUILD_RC=$?
+    "$VRAM_BEFORE_BYTES" "$VRAM_PEAK_BYTES" "$VRAM_AFTER_BYTES" "$MTP_SMOKE_STATUS" "$MTP_DRAFT_TOKENS" "$MTP_DRAFT_ACCEPTED" "$MODEL_INTEGRATION_ID" "$TOOL_SMOKE_STATUS" <<'PY' || HUGS_BUILD_RC=$?
 import json, os, sys
 out, name, model_path, file_name, repo_id, gpu_device, eff_ctx, cpu_moe, \
     mmproj_path, metadata_raw, repo_meta_raw, repo_sha, repo_has_sha, \
-    ctx_mode, do_smoke, src_class, vram_before, vram_peak, vram_after, mtp_status, mtp_draft, mtp_accepted, integration_id = sys.argv[1:]
+    ctx_mode, do_smoke, src_class, vram_before, vram_peak, vram_after, mtp_status, mtp_draft, mtp_accepted, integration_id, tool_status = sys.argv[1:]
 metadata = json.loads(metadata_raw or '{}')
 repo_meta = json.loads(repo_meta_raw or '{}')
 model_id = 'hugs-' + name
@@ -1257,7 +1337,7 @@ vision = bool(mmproj_path) or ('image' in (repo_meta.get('pipeline_tag', '') or 
 # ROCm0 -> ROCm, CUDA0 -> CUDA (schema comment: ROCm | CUDA | CPU).
 backend = ''.join(ch for ch in gpu_device if not ch.isdigit()) or 'unknown'
 cap_in = ['text'] + (['image'] if vision else [])
-capabilities = {'in': cap_in, 'out': ['text'], 'tools': False, 'context': int(eff_ctx or 0) or 0}
+capabilities = {'in': cap_in, 'out': ['text'], 'tools': tool_status == 'working', 'context': int(eff_ctx or 0) or 0}
 display = (repo_meta.get('repo_name') or metadata.get('name') or '').strip()[:128] or file_name
 eff = int(eff_ctx or 0) or 0
 assets = [{
