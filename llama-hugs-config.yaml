@@ -4,6 +4,7 @@ groups:
     swap: true
     exclusive: false
     members:
+    - "ornith-1-5-35b-a3b-gsq-rco-3-5bit"
     - "gemma-4-dark-thoughts-v2-31b-q3-k-s"
     - "ternary-bonsai-2-27b-pq2-0"
     - swift-1-5-qwen3-8-27b-gsq-rco-iq2-xs-mtp
@@ -96,6 +97,32 @@ groups:
     - ling-mini-2-q6-cuda
     - qwen3-8-27b-ktopt-cuda
 models:
+  "ornith-1-5-35b-a3b-gsq-rco-3-5bit":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    name: "Ornith-1.5-35B-A3B-GSQ-RCO-GGUF"
+    capabilities:
+      in: ["text"]
+      out: ["text"]
+      tools: false
+      context: 262144
+    metadata:
+      source_repo: "pfeifferj/Ornith-1.5-35B-A3B-GSQ-RCO-GGUF"
+      repo_url: "https://huggingface.co/pfeifferj/Ornith-1.5-35B-A3B-GSQ-RCO-GGUF"
+      file_size_bytes: 15163013536
+      file_sha256: "69191d3d2c402f7c13950815bf20d826d7066c8d7f1bef4594cf70c13ea56ccc"
+      has_checksum: true
+      vision: false
+      mmproj: null
+      mmproj_filename: null
+      mtp: false
+      mtp_flag: null
+      pipeline_tag: "text-generation"
+      integration_id: null
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/Ornith-1.5-35B-A3B-GSQ-RCO-3.5bit.gguf
+      --n-gpu-layers 99 --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 262144 --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
   "gemma-4-dark-thoughts-v2-31b-q3-k-s":
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
