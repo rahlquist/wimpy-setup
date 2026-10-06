@@ -4,6 +4,7 @@ groups:
     swap: true
     exclusive: false
     members:
+    - "thinkingcap-qwen3-8-27b-q6-k"
     - "ornith-1-5-35b-a3b-gsq-rco-3-5bit"
     - "gemma-4-dark-thoughts-v2-31b-q3-k-s"
     - "ternary-bonsai-2-27b-pq2-0"
@@ -97,6 +98,36 @@ groups:
     - ling-mini-2-q6-cuda
     - qwen3-8-27b-ktopt-cuda
 models:
+  "thinkingcap-qwen3-8-27b-q6-k":
+    ttl: 300
+    env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]
+    name: "ThinkingCap-Qwen3.8-27B-GGUF"
+    capabilities:
+      in: ["text", "image"]
+      out: ["text"]
+      tools: true
+      context: 65536
+    metadata:
+      source_repo: "bottlecapai/ThinkingCap-Qwen3.8-27B-GGUF"
+      repo_url: "https://huggingface.co/bottlecapai/ThinkingCap-Qwen3.8-27B-GGUF"
+      file_size_bytes: 23860566112
+      file_sha256: "36ab5032dc4725f8acdb237070f9e5574171e0e29cd583fcc417a6c8ef87f557"
+      has_checksum: true
+      vision: true
+      mmproj: "/home/rahlquist/.cache/llama.cpp/ThinkingCap-Qwen3.8-27B-Q6_K.mmproj.gguf"
+      mmproj_filename: "ThinkingCap-Qwen3.8-27B-Q6_K.mmproj.gguf"
+      mtp: true
+      mtp_flag: "--spec-type draft-mtp"
+      pipeline_tag: "image-text-to-text"
+      integration_id: null
+      mtp_tensor_sample:
+        - "blk.64.nextn.eh_proj.weight"
+        - "blk.64.nextn.enorm.weight"
+        - "blk.64.nextn.hnorm.weight"
+    cmd: |
+      /usr/local/bin/llama-server --model /home/rahlquist/.cache/llama.cpp/ThinkingCap-Qwen3.8-27B-Q6_K.gguf
+      --n-gpu-layers 99 --load-mode none --spec-type draft-mtp --device ROCm0 --flash-attn on --cache-type-k q4_0 --cache-type-v q4_0 --ctx-size 65536 --mmproj /home/rahlquist/.cache/llama.cpp/ThinkingCap-Qwen3.8-27B-Q6_K.mmproj.gguf --jinja
+      --host 0.0.0.0 --port ${PORT} --metrics
   "ornith-1-5-35b-a3b-gsq-rco-3-5bit":
     ttl: 300
     env: ["HIP_VISIBLE_DEVICES=GPU-61fe9ba05af1939a"]

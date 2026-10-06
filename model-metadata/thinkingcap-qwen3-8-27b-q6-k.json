@@ -1,0 +1,53 @@
+{
+  "alias": "thinkingcap-qwen3-8-27b-q6-k",
+  "description": "ThinkingCap Qwen3.8 27B",
+  "downloaded_at": "2026-10-06T13:35:15+00:00",
+  "file_sha256": "36ab5032dc4725f8acdb237070f9e5574171e0e29cd583fcc417a6c8ef87f557",
+  "file_size_bytes": 23860566112,
+  "filename": "ThinkingCap-Qwen3.8-27B-Q6_K.gguf",
+  "gguf": {
+    "ambiguous_vision": false,
+    "architecture": "qwen35",
+    "attention_head_count": 24,
+    "attention_head_count_kv": 4,
+    "attention_key_length": 256,
+    "attention_value_length": 256,
+    "block_count": 65,
+    "context_length": 262144,
+    "description": "",
+    "embedded_projector": false,
+    "embedding_length": 5120,
+    "expert_count": 0,
+    "expert_used_count": 0,
+    "has_mtp": true,
+    "mtp_flag": "--spec-type draft-mtp",
+    "mtp_tensor_sample": [
+      "blk.64.nextn.eh_proj.weight",
+      "blk.64.nextn.enorm.weight",
+      "blk.64.nextn.hnorm.weight",
+      "blk.64.nextn.shared_head_norm.weight"
+    ],
+    "multimodal": false,
+    "name": "ThinkingCap Qwen3.8 27B",
+    "needs_external_projector": false
+  },
+  "has_checksum": true,
+  "has_mtp": true,
+  "integration_id": null,
+  "mmproj_filename": "ThinkingCap-Qwen3.8-27B-Q6_K.mmproj.gguf",
+  "mmproj_path": "/home/rahlquist/.cache/llama.cpp/ThinkingCap-Qwen3.8-27B-Q6_K.mmproj.gguf",
+  "model_path": "/home/rahlquist/.cache/llama.cpp/ThinkingCap-Qwen3.8-27B-Q6_K.gguf",
+  "mtp_flag": "--spec-type draft-mtp",
+  "mtp_tensor_sample": [
+    "blk.64.nextn.eh_proj.weight",
+    "blk.64.nextn.enorm.weight",
+    "blk.64.nextn.hnorm.weight"
+  ],
+  "n_cpu_moe": null,
+  "native_context": 262144,
+  "pipeline_tag": "image-text-to-text",
+  "repo_url": "https://huggingface.co/bottlecapai/ThinkingCap-Qwen3.8-27B-GGUF",
+  "repository": "bottlecapai/ThinkingCap-Qwen3.8-27B-GGUF",
+  "requested_context": 65536,
+  "vision": true
+}
