@@ -112,9 +112,11 @@ MEDIUM = friction/inconsistency, LOW = polish.
 - [ ] M1. CLAUDE.md presents superseded migration narrative first, present
   tense; struck-through "OBSOLETE" blocks invite copy-paste errors.
   "Current state" first, history to appendix.
-- [ ] M2. 3 legacy llama-hugs-config.yaml entries bind 127.0.0.1 while 23 bind
+- [ ] M2. 2 legacy llama-hugs-config.yaml entries bind 127.0.0.1 while 89 bind
   0.0.0.0 — VMs get connection-refused for exactly those models, no comment
   why. Mixed long/short flag styles vs the file's "ONE consistent method."
+  **Left as-is deliberately (2026-10-09):** binding 127.0.0.1 fleet-wide would
+  break hermesvm01, which reaches these models over br0. Tracked as M7/P3.4.
 - [ ] M3. lib/common.sh:59 full `pacman -Syu --noconfirm` mid-run, no preflight
   warning; sudo invisible-password prompt never explained to first-timers.
 - [ ] M4. 09-kvm.sh:56-59 per-package `|| warn` with 2>/dev/null hides real
@@ -148,6 +150,37 @@ MEDIUM = friction/inconsistency, LOW = polish.
   nvidia-utils.conf.new lacking install target + verification step.
 - [ ] L5. run-all.sh --dry prints the full "complete" checklist.
 - [ ] L6. hermesvm-setup.sh only adds npm PATH to .bashrc.
+
+## Speculative decoding — what was applied and the real ceiling (2026-10-09)
+
+**Applied:** `--spec-type draft-mtp` on 28 of the 29 models declaring
+`metadata.mtp: true` (P1.1). The flag is the ONLY activation path — the router
+does not read `mtp_flag`; metadata alone is dead weight that still occupies
+VRAM.
+
+**`qwen3-8-27b-crack-q8-0` deliberately skipped:** 27.1 GiB weights + 4.5 GiB
+q4_0 KV @64K = 32.6 GiB before the draft head, so it cannot load today. MTP
+would only guarantee a harder failure.
+
+**Measured ceiling — do not over-promise.** Live on the R9700 (Q6_K @64K):
+acceptance 0.77, **mean accepted draft length 3.00 tokens**, 26.85 GiB VRAM,
+37.28 tok/s. Because MTP proposes ~3 tokens per turn, the absolute gain is
+bounded near **+14 tok/s** regardless of further tuning. turbofit's suggested
+`--spec-draft-n-max` tuning (+10-30%) was NOT applied: it cannot raise the
+accepted length past what the head produces, and the flag is unmeasured here.
+Revisit only with an A/B on this card.
+
+**`--fit on` withheld from the two large-context entries** (ornith 262144,
+gsq-rco-iq3-s-mtp 262144): there it would silently shrink context below the
+advertised capability, which is worse than a loud load failure. ornith's
+context was capped to 131072 instead (14.1 + 18.0 GiB KV = 32.1 GiB was an
+OOM on first load).
+
+**Not applied, on purpose:** DFlash2 (`--model-draft`, `--spec-type draft-dflash`)
+needs a family-matched drafter checkpoint (+3.8 GiB) and is family-bound —
+the Granite attempt died on a GGML assertion with a Qwen3.8 drafter. Unmeasured
+spec depth, `--cache-reuse`, and cross-vendor tensor-split are likewise absent
+(cross-vendor is impossible: HIP and CUDA binaries cannot share one card).
 
 ## What works (keep doing it)
 

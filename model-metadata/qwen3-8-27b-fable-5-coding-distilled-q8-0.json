@@ -1,0 +1,53 @@
+{
+  "alias": "qwen3-8-27b-fable-5-coding-distilled-q8-0",
+  "description": "Qwen3.8 27B Fable 5 Coding Distilled",
+  "downloaded_at": "2026-10-09T17:09:11+00:00",
+  "file_sha256": "07896593624778f6a0912bd2553ff17332d7bd169c818e8ff8413abdd931a842",
+  "file_size_bytes": 29047086624,
+  "filename": "Qwen3.8-27B-Fable-5-Coding-Distilled.Q8_0.gguf",
+  "gguf": {
+    "ambiguous_vision": false,
+    "architecture": "qwen35",
+    "attention_head_count": 24,
+    "attention_head_count_kv": 4,
+    "attention_key_length": 256,
+    "attention_value_length": 256,
+    "block_count": 65,
+    "context_length": 262144,
+    "description": "",
+    "embedded_projector": false,
+    "embedding_length": 5120,
+    "expert_count": 0,
+    "expert_used_count": 0,
+    "has_mtp": true,
+    "mtp_flag": "--spec-type draft-mtp",
+    "mtp_tensor_sample": [
+      "blk.64.nextn.eh_proj.weight",
+      "blk.64.nextn.enorm.weight",
+      "blk.64.nextn.hnorm.weight",
+      "blk.64.nextn.shared_head_norm.weight"
+    ],
+    "multimodal": false,
+    "name": "Qwen3.8 27B Fable 5 Coding Distilled",
+    "needs_external_projector": false
+  },
+  "has_checksum": true,
+  "has_mtp": true,
+  "integration_id": null,
+  "mmproj_filename": "Qwen3.8-27B-Fable-5-Coding-Distilled.Q8_0.mmproj.gguf",
+  "mmproj_path": "/home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Fable-5-Coding-Distilled.Q8_0.mmproj.gguf",
+  "model_path": "/home/rahlquist/.cache/llama.cpp/Qwen3.8-27B-Fable-5-Coding-Distilled.Q8_0.gguf",
+  "mtp_flag": "--spec-type draft-mtp",
+  "mtp_tensor_sample": [
+    "blk.64.nextn.eh_proj.weight",
+    "blk.64.nextn.enorm.weight",
+    "blk.64.nextn.hnorm.weight"
+  ],
+  "n_cpu_moe": null,
+  "native_context": 262144,
+  "pipeline_tag": null,
+  "repo_url": "https://huggingface.co/mradermacher/Qwen3.8-27B-Fable-5-Coding-Distilled-GGUF",
+  "repository": "mradermacher/Qwen3.8-27B-Fable-5-Coding-Distilled-GGUF",
+  "requested_context": 65536,
+  "vision": true
+}

@@ -39,6 +39,11 @@ WATCHER="$BENCH_DIR/model_watcher.py"
 REPORTER="$BENCH_DIR/report.py"
 LOG="$BENCH_DIR/watcher.log"
 CONFIG="/home/rahlquist/wimpy-setup/llama-hugs-config.yaml"
+# Repo root for the commit+push step below. MUST be declared here, above its
+# first use in the Pages-copy step: the script runs under `set -u` (line 20),
+# so referencing $REPO before this assignment aborts the script and the
+# docs/ copy plus the whole commit+push block never runs.
+REPO="/home/rahlquist/wimpy-setup"
 
 ROCm_BIN="/usr/local/bin/llama-bench"      # ROCm build -> AMD R9700
 CUDA_BIN="/opt/llama-cuda/bin/llama-bench" # CUDA build -> RTX 5060 Ti
@@ -102,8 +107,10 @@ install -Dm644 "$BENCH_DIR/bench_results.html" "$REPO/$PAGES_REL" 2>&1 | tee -a 
 # which has no GitHub credentials of its own). Never force-push: if the
 # remote has commits we don't, merge them first so nothing is discarded.
 echo "[$(date -u +%FT%TZ)] === syncing results to origin/main ===" | tee -a "$LOG"
-REPO="/home/rahlquist/wimpy-setup"
+# ---------------------------------------------------------------------------
 # Paths are repo-relative (run-nightly-bench.sh lives in <repo>/benching/).
+# REPO is defined once at the top of this file; it is referenced here only.
+# ---------------------------------------------------------------------------
 REPORT_REL="benching/bench_results.html"
 GIT_OWNER="rahlquist"
 GIT_ENV=(GIT_SSH_COMMAND="ssh -i /home/rahlquist/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" HOME=/home/rahlquist)

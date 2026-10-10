@@ -303,7 +303,7 @@ Both GPUs serve inference at the same time, behind one `llama-hugs`:
   CUDA backends share library filenames, so a shared prefix would clobber one.
   You can't combine both backends in a single binary.
 - **One llama-hugs, two groups.** `llama-hugs-config.yaml` defines `amd-r9700`
-  (26 models, `--device ROCm0`) and `nvidia-5060ti` (19 `<16GB` models,
+  (68 models, `--device ROCm0`) and `nvidia-5060ti` (24 `<16GB` models,
   `--device CUDA0`). Both groups are `exclusive: false`, so one model per GPU
   can be resident at once and two agents run in parallel — one per card.
   Every model must belong to a group or it lands in the default exclusive

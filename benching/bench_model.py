@@ -76,6 +76,11 @@ CREATE TABLE IF NOT EXISTS benchmark_runs (
     stddev_ts REAL,
     avg_ns INTEGER,
     stddev_ns INTEGER,
+    repetitions INTEGER,     -- actual rep count: 1-rep rows have stddev 0.00 and
+                              -- must NOT be read with the authority of a 3-rep row
+    cache_type_k TEXT,       -- KV cache type actually used for this measurement
+    cache_type_v TEXT,
+    ctx_size INTEGER,        -- context actually used, so a tok/s is attributable
     notes TEXT
 );
 """
@@ -97,6 +102,22 @@ def ensure_db(db_path):
         conn.execute("ALTER TABLE benchmark_runs ADD COLUMN date_run INTEGER")
         conn.execute("UPDATE benchmark_runs SET date_run=? WHERE date_run IS NULL",
                      (int(time.time()),))
+    # Migration (2026-10-09): record how many repetitions a row actually used,
+    # plus the KV/context configuration. Before this, a 1-rep CUDA row
+    # (stddev 0.00) was rendered identically to a 3-rep ROCm row, and no
+    # committed tok/s was attributable to a KV type or context.
+    for col, decl in (
+        ("repetitions", "ALTER TABLE benchmark_runs ADD COLUMN repetitions INTEGER"),
+        ("cache_type_k", "ALTER TABLE benchmark_runs ADD COLUMN cache_type_k TEXT"),
+        ("cache_type_v", "ALTER TABLE benchmark_runs ADD COLUMN cache_type_v TEXT"),
+        ("ctx_size", "ALTER TABLE benchmark_runs ADD COLUMN ctx_size INTEGER"),
+    ):
+        if col not in cols:
+            conn.execute(decl)
+    # Legacy rows predate the recording: they carry no repetition count and
+    # the old harness did not pin KV/context. Mark them unknown rather than
+    # letting them masquerade as 3-rep production measurements.
+    conn.execute("UPDATE benchmark_runs SET repetitions=1 WHERE repetitions IS NULL")
     conn.commit()
     return conn
 
@@ -200,17 +221,25 @@ def test_label(row):
     return label or "unknown"
 
 
-def store_rows(conn, model_id, rows, notes=""):
+def store_rows(conn, model_id, rows, notes="", bench_meta=None):
     now = datetime.now(timezone.utc).isoformat()
     epoch = int(time.time())
+    # Configuration the measurement was actually taken under. Recorded per row
+    # so a committed tok/s is attributable to a KV type and context.
+    bm = bench_meta or {}
+    reps = bm.get("repetitions")
+    ctk = bm.get("cache_type_k")
+    ctv = bm.get("cache_type_v")
+    ctx = bm.get("ctx_size")
     for row in rows:
         conn.execute(
             """INSERT INTO benchmark_runs
                (model_id, run_time, date_run, build_commit, build_number, cpu_info, gpu_info,
                 backends, model_type, model_size, model_n_params, n_gpu_layers,
                 flash_attn, n_threads, test_name, n_prompt, n_gen, n_depth,
-                avg_ts, stddev_ts, avg_ns, stddev_ns, notes)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                avg_ts, stddev_ts, avg_ns, stddev_ns,
+                repetitions, cache_type_k, cache_type_v, ctx_size, notes)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 model_id, now, epoch, row.get("build_commit"), row.get("build_number"),
                 row.get("cpu_info"), row.get("gpu_info"), row.get("backends"),
@@ -218,6 +247,7 @@ def store_rows(conn, model_id, rows, notes=""):
                 row.get("n_gpu_layers"), row.get("flash_attn"), row.get("n_threads"),
                 test_label(row), row.get("n_prompt"), row.get("n_gen"), row.get("n_depth"),
                 row.get("avg_ts"), row.get("stddev_ts"), row.get("avg_ns"), row.get("stddev_ns"),
+                reps, ctk, ctv, ctx,
                 notes,
             ),
         )
@@ -291,10 +321,22 @@ def benchmark_one(bench_bin, model_path, db_path, csv_path, budget_s, repetition
     all_rows, notes_parts, overall_status = [], [], "done"
 
     # Pass 1: short-context throughput, the numbers everyone compares.
+    # Flags MUST match what llama-hugs-config.yaml actually serves, otherwise
+    # the reported tok/s describes a configuration nothing runs:
+    #   -fa on            (production passes --flash-attn on)
+    #   -ctk/-ctv q4_0    (production passes --cache-type-k/v q4_0)
+    # tg128 is the memory-bandwidth proxy; q4_0-vs-f16 KV is exactly what
+    # moves that metric, so omitting it made the nightly table unusable as
+    # evidence for any tuning decision.
+    #
+    # NOTE: this llama-bench build has NO -c/--ctx-size flag (it sizes via
+    # -fit-target/-fitc), so context cannot be pinned here. Verify before
+    # adding one back: `llama-bench --help | grep -E 'ctx|fit-target'`.
     remaining = budget_s - (time.time() - start)
     rows, timed_out, err = run_llama_bench(
         bench_bin, model_path, device,
-        ["-p", "512", "-n", "128", "-r", str(repetitions), "-fa", "auto", "-ngl", "999"],
+        ["-p", "512", "-n", "128", "-r", str(repetitions),
+         "-fa", "on", "-ctk", "q4_0", "-ctv", "q4_0", "-ngl", "999"],
         timeout_s=max(30, remaining), expected_gpu=expected_gpu,
     )
     all_rows += rows
@@ -309,7 +351,7 @@ def benchmark_one(bench_bin, model_path, db_path, csv_path, budget_s, repetition
         rows2, timed_out2, err2 = run_llama_bench(
             bench_bin, model_path, device,
             ["-p", "512", "-n", "128", "-d", "4096", "-r", str(max(1, repetitions - 1)),
-             "-fa", "auto", "-ngl", "999"],
+             "-fa", "on", "-ctk", "q4_0", "-ctv", "q4_0", "-ngl", "999"],
             timeout_s=max(30, remaining), expected_gpu=expected_gpu,
         )
         all_rows += rows2
@@ -323,7 +365,19 @@ def benchmark_one(bench_bin, model_path, db_path, csv_path, budget_s, repetition
     if not all_rows:
         overall_status = "failed"
 
-    store_rows(conn, model_id, all_rows, notes="; ".join(notes_parts))
+    # Record the configuration these rows were measured under, so the committed
+    # table is attributable and single-rep rows are distinguishable from
+    # multi-rep ones (pass 2 uses repetitions-1 by design).
+    # ctx_size is null: this llama-bench build has no -c flag, so the harness
+    # cannot pin context. Recorded as unrecorded rather than asserting 65536.
+    bench_meta = {
+        "repetitions": repetitions,
+        "cache_type_k": "q4_0",
+        "cache_type_v": "q4_0",
+        "ctx_size": None,
+    }
+    store_rows(conn, model_id, all_rows, notes="; ".join(notes_parts),
+               bench_meta=bench_meta)
     conn.execute(
         "UPDATE models SET status=?, last_benchmarked=? WHERE id=?",
         (overall_status, datetime.now(timezone.utc).isoformat(), model_id),

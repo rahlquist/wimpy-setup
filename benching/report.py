@@ -140,6 +140,21 @@ def build_rows(conn, db_rows, include_file):
             date_str = datetime.fromtimestamp(epoch).strftime("%Y-%m-%d")
         else:
             date_str = (r["run_time"] or "")[:10]
+        # A 1-rep row has stddev 0.00 by definition, so rendering it as
+        # "avg ± std" next to 3-rep rows gave single-shot measurements the
+        # authority of a confidence interval. Mark them explicitly.
+        reps = r["repetitions"] if "repetitions" in keys else None
+        avg_ts = r["avg_ts"] or 0
+        std_ts = r["stddev_ts"] or 0.0
+        if reps == 1:
+            ts_str = f"{avg_ts:.2f} (1 rep, no CI)"
+        elif reps:
+            ts_str = f"{avg_ts:.2f} \u00b1 {std_ts:.2f} ({reps} reps)"
+        else:
+            # Legacy row written before the column existed.
+            ts_str = f"{avg_ts:.2f} \u00b1 {std_ts:.2f} (reps unknown)"
+        ctk = r["cache_type_k"] if "cache_type_k" in keys else None
+        ctx = r["ctx_size"] if "ctx_size" in keys else None
         row = {
             "date": date_str,
             "model": r["model_type"] or "",
@@ -149,13 +164,16 @@ def build_rows(conn, db_rows, include_file):
             "ngl": r["n_gpu_layers"] if r["n_gpu_layers"] is not None else "",
             "fa": r["flash_attn"] if r["flash_attn"] is not None else "",
             "test": r["test_name"] or "",
-            "ts": fmt_ts(r["avg_ts"], r["stddev_ts"]),
+            "ts": ts_str,
+            "reps": reps if reps else "?",
+            "kv": ctk or "unrecorded",
+            "ctx": ctx if ctx else "unrecorded",
             "_sort_test": test_sort_key(r["test_name"] or ""),
             "_date_run": epoch or 0,
             "_model_id": r["model_id"],
             "_size_bytes": r["model_size"] or 0,
             "_params_n": r["model_n_params"] or 0,
-            "_avg_ts": r["avg_ts"] or 0,
+            "_avg_ts": avg_ts,
         }
         if include_file:
             row["file"] = filenames.get(r["model_id"], "")
