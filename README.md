@@ -120,6 +120,50 @@ curl http://wimpy.home.lan:8080/v1/models   # verify wimpy reachable
   effective custom llama.cpp parameters.
 - `llama-hugs.service` — the systemd unit (also installed by `05-llama-cpp.sh`).
 
+### Speculative decoding
+
+Two mechanisms are in use, and they are **not interchangeable**:
+
+- **MTP** (`--spec-type draft-mtp`) uses draft-head tensors already inside the
+  GGUF (`blk.*.nextn.*`). Costs no extra file. Active on 25 models whose
+  metadata declares `mtp: true` (29 declare it; `crack-q8-0` cannot fit the
+  head in VRAM and 4 were converted to DFlash2).
+- **DFlash2** (`--spec-type draft-dflash` + `--spec-draft-model`) uses a
+  **separate drafter file** and is materially faster. The drafter lives at
+  `~/.cache/llama.cpp/Qwen3.8-27B-DFlash2-Q8_0.gguf` (2,056,414,816 bytes,
+  SHA-256 `c18e800d…`). It is trained against the **Qwen3.8-27B base family
+  only**.
+
+Measured on the R9700 @64K, q4_0 KV, 256-token cap, 3 reps, end-to-end tok/s:
+
+| Model | plain | +DFlash2 | speedup |
+|---|---:|---:|---:|
+| UD-IQ4_XS | 31.2 | 76.8 | **2.47×** |
+| Q5_K_M | 25.3 | 53.7 | **2.12×** |
+| Q6_K | 22.5 | 43.2 | **1.92×** |
+| Q4_K_M | 25.6 | 45.4 | **1.77×** |
+
+**Rules when adding or changing a speculative entry:**
+
+1. `metadata.mtp_flag` is **inert** — the router never reads it. The `cmd` is
+   the only activation path. Setting the metadata without the flag just burns
+   VRAM on a dead draft head.
+2. **DFlash2 is family-bound and fails hard.** A drafter paired with a
+   non-Qwen3.8-27B-base model aborts at load with
+   `GGML_ASSERT(ggml_can_repeat(b, a)) failed`. Only convert base-family
+   entries. Fine-tunes (CRACK, Dirk, ThinkingCap, TurboFCFusion, Tiel-Coder,
+   Swift) have no published per-finetune drafter.
+3. **Budget the VRAM.** The drafter costs ~2 GiB on top of weights + KV.
+   `gsq-rco-iq3-s-mtp` is excluded for exactly this reason: 11.3 + 18.0 (KV at
+   its served 262144) + 2.0 = 31.3 GiB does not fit the 32 GB card. Never judge
+   fit at a smaller context than the entry actually serves.
+4. **Vision is unverified with DFlash2.** Upstream llama.cpp issue #27408 shows
+   image requests leave positional holes in the draft KV cache and fail. All
+   converted models carry `--mmproj`; treat their vision path as untested.
+5. **Do not tune MTP depth.** A sweep of `--spec-draft-n-max` ∈ {3,4,6,8} gave
+   a non-monotonic, model-specific response — no reliable win. Leave the
+   default of 3.
+
 ### Linting the config
 
 Run the linter before deploying the source config:

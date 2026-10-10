@@ -162,13 +162,33 @@ VRAM.
 q4_0 KV @64K = 32.6 GiB before the draft head, so it cannot load today. MTP
 would only guarantee a harder failure.
 
-**Measured ceiling — do not over-promise.** Live on the R9700 (Q6_K @64K):
-acceptance 0.77, **mean accepted draft length 3.00 tokens**, 26.85 GiB VRAM,
-37.28 tok/s. Because MTP proposes ~3 tokens per turn, the absolute gain is
-bounded near **+14 tok/s** regardless of further tuning. turbofit's suggested
-`--spec-draft-n-max` tuning (+10-30%) was NOT applied: it cannot raise the
-accepted length past what the head produces, and the flag is unmeasured here.
-Revisit only with an A/B on this card.
+**Measured ceiling — MTP-specific, do not generalize it.** Live on the R9700
+(Q6_K @64K): acceptance 0.77, **mean accepted draft length 3.00 tokens**, 26.85 GiB VRAM,
+37.28 tok/s.
+
+A later depth sweep (2026-10-10, @64K, q4_0 KV, 256-tok cap, 3 reps,
+end-to-end tok/s) tested whether `--spec-draft-n-max` helps MTP at all:
+
+| Model | n-max 3 | n-max 4 | n-max 6 | n-max 8 | plain |
+|---|---:|---:|---:|---:|---:|
+| Qwen3.8-27B-Q5_K_M | **49.3** | 48.8 | 43.6 | 49.1 | 24.7 |
+| GSQ-RCO IQ3_S | 43.6 | 43.9 | 40.8 | **54.3** | 32.2 |
+
+**Verdict: MTP depth tuning is NOT a reliable win and is therefore NOT
+applied.** The response is non-monotonic and model-specific — n-max 8 gives
++24% over n-max 3 on GSQ-RCO but nothing on Q5_K_M, and n-max 6 is actively
+worse on both. With 3 reps per cell this is inside noise for the mid values,
+and the only reproducible pattern is "bigger is not monotonically better."
+llama.cpp's default of 3 is left in place rather than chasing a noisy curve
+across 27 models. This retracts the plan's M2 estimate of "+10-30%".
+
+The accepted length DOES scale with depth (3.14 → 5.20 on Q5_K_M), so the
+mechanism is real; the throughput payoff just does not follow monotonically
+because each extra drafted token costs verify work. Depth tuning would need
+far more repetitions per cell to be actionable.
+
+The win that IS large and monotonic is **DFlash2** — a separate drafter file,
+not a depth flag. See below.
 
 **`--fit on` withheld from the two large-context entries** (ornith 262144,
 gsq-rco-iq3-s-mtp 262144): there it would silently shrink context below the
@@ -176,11 +196,41 @@ advertised capability, which is worse than a loud load failure. ornith's
 context was capped to 131072 instead (14.1 + 18.0 GiB KV = 32.1 GiB was an
 OOM on first load).
 
-**Not applied, on purpose:** DFlash2 (`--model-draft`, `--spec-type draft-dflash`)
-needs a family-matched drafter checkpoint (+3.8 GiB) and is family-bound —
-the Granite attempt died on a GGML assertion with a Qwen3.8 drafter. Unmeasured
-spec depth, `--cache-reuse`, and cross-vendor tensor-split are likewise absent
-(cross-vendor is impossible: HIP and CUDA binaries cannot share one card).
+**DFlash2 — measured, applied to the Qwen3.8-27B base family.** The drafter is
+`incoai/Qwen3.8-27B-DFlash2-GGUF` → `Qwen3.8-27B-DFlash2-Q8_0.gguf`
+(2,056,414,816 bytes, SHA-256 `c18e800daedc59ca68fd13b6a856d795746af6d399a9279ac6a277d1d422f87e`,
+verified against the publisher's manifest).
+
+Measured on the R9700 @64K, q4_0 KV, 256-tok cap, 3 reps, end-to-end tok/s:
+
+| Model | plain | +DFlash2 | speedup | acceptance | mean accepted len |
+|---|---:|---:|---:|---:|---:|
+| UD-IQ4_XS | 31.2 | 76.8 | **2.47×** | 0.669 | 5.67 |
+| Q5_K_M | 25.3 | 53.7 | **2.12×** | 0.604 | 5.20 |
+| Q6_K | 22.5 | 43.2 | **1.92×** | 0.505 | 4.54 |
+| Q4_K_M | 25.6 | 45.4 | **1.77×** | 0.440 | 4.05 |
+| GSQ-RCO IQ3_S | 32.4 | 54.2 | **1.67×** | 0.525 | 4.64 |
+
+Depth sweep on Q5_K_M: n-max 5 → 54.9 tok/s (acc 0.691), n-max 7 → 53.0, n-max
+8 → 53.0. **n-max 7 is the applied value**; 5 is marginally faster on this one
+prompt but 7 is the drafter's trained block and generalizes better.
+
+**Family binding is a hard guard, not a preference.** The drafter is trained
+against the Qwen3.8-27B base family. Pairing it with a different architecture
+does not degrade — it **fails at load** with
+`GGML_ASSERT(ggml_can_repeat(b, a)) failed`. Verified twice against Granite
+4.1 3B. Only base-family Qwen3.8-27B entries carry the draft.
+
+**Vision is untested with DFlash2 and is presumed broken.** Upstream llama.cpp
+issue #27408 documents that mtmd image chunks leave positional holes in the
+1D draft KV cache, so `llama_decode(ctx_dft)` returns -1 and image requests
+stall ~500 s then HTTP 500. A community zero-fill patch removes the crash but
+the drafter never engages on images (draft/accept counters stay 0). Do not
+claim vision compatibility from a text-only benchmark.
+
+**Still not applied, on purpose:** `--cache-reuse`, `--slot-prompt-similarity`,
+cross-vendor tensor-split (impossible — HIP and CUDA binaries cannot share one
+card), and `--n-cpu-moe` (actively harmful, 0.87–4.78 tok/s in turbofit's data).
 
 ## What works (keep doing it)
 

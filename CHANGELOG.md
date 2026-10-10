@@ -1,5 +1,59 @@
 # Changelog — wimpy-setup
 
+## DFlash2 speculative decoding enabled on the Qwen3.8-27B base family (2026-10-10)
+
+**What changed:** four models now run `--spec-type draft-dflash` with the
+family-matched drafter `Qwen3.8-27B-DFlash2-Q8_0.gguf` instead of MTP:
+`qwen3-8-27b-ud-iq4-xs`, `qwen3-8-27b-q4-k-m`, `qwen3-8-27b-q5-k-m`,
+`qwen3-8-27b-q6-k`.
+
+**Measured on the R9700** @64K, q4_0 KV, 256-token cap, 3 reps, end-to-end tok/s
+(same prompt, greedy, isolated sequential servers):
+
+| Model | plain | +DFlash2 | speedup | acceptance | mean accepted len |
+|---|---:|---:|---:|---:|---:|
+| UD-IQ4_XS | 31.2 | 76.8 | **2.47×** | 0.669 | 5.67 |
+| Q5_K_M | 25.3 | 53.7 | **2.12×** | 0.604 | 5.20 |
+| Q6_K | 22.5 | 43.2 | **1.92×** | 0.505 | 4.54 |
+| Q4_K_M | 25.6 | 45.4 | **1.77×** | 0.440 | 4.05 |
+
+**Why these four and not the other MTP models:** DFlash2 is a separate drafter
+file trained against the Qwen3.8-27B **base** family. Fine-tunes (CRACK, Dirk,
+ThinkingCap, TurboFCFusion, Tiel-Coder, Swift) diverge from that family and
+there is no per-finetune drafter published. Family binding is a hard load-time
+guard, not a soft preference — a mismatched drafter aborts with
+`GGML_ASSERT(ggml_can_repeat(b, a)) failed`, verified twice against Granite 4.1.
+
+**`qwen3-8-27b-gsq-rco-iq3-s-mtp` deliberately excluded** despite measuring
+1.67×: it serves `--ctx-size 262144`, and weights 11.3 GiB + q4_0 KV 18.0 GiB +
+drafter 2.0 GiB = 31.3 GiB leaves no headroom on the 32 GB R9700. Its 1.67×
+figure was measured at 64K, which is not the context it actually serves.
+
+**VRAM budget is the binding constraint**, not availability of the flag. Each
+conversion adds ~2 GiB of drafter weights. Q8_0-class entries
+(`fable-5-coding-distilled-q8-0`, `crack-q8-0`) and the 35B Tiel-Coder cannot
+absorb it and were left on MTP or plain.
+
+**MTP depth tuning was tested and rejected.** A sweep of `--spec-draft-n-max`
+∈ {3, 4, 6, 8} on two models showed a non-monotonic, model-specific response:
+n-max 8 beat n-max 3 by 24% on GSQ-RCO but was flat on Q5_K_M, and n-max 6 was
+worse than both on each. Accepted draft length does scale with depth (3.14 →
+5.20), but throughput does not follow, because each extra drafted token costs
+verification work. llama.cpp's default of 3 was left in place rather than
+tuning a noisy curve across 27 models. This retracts the earlier "+14 tok/s
+hard ceiling" claim and the plan's "+10-30% from depth tuning" estimate.
+
+**Vision is untested and presumed non-functional with DFlash2.** Upstream
+llama.cpp issue #27408 documents that image chunks leave positional holes in
+the 1D draft KV cache, causing `llama_decode(ctx_dft)` to return -1 and image
+requests to stall then fail. All four converted models carry `--mmproj`, so
+their vision path must not be assumed to work. Text was verified.
+
+**Drafter provenance:** `incoai/Qwen3.8-27B-DFlash2-GGUF` →
+`Qwen3.8-27B-DFlash2-Q8_0.gguf`, 2,056,414,816 bytes, SHA-256
+`c18e800daedc59ca68fd13b6a856d795746af6d399a9279ac6a277d1d422f87e`, verified
+against the publisher's manifest before first use.
+
 ## ROCm large-model load hang: kernel 7.2.0-rc5 regression, auto --no-mmap workaround (2026-08-14)
 
 **Status update (2026-08-15):** the regression is fixed by kernel
