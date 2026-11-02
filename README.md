@@ -1,8 +1,10 @@
 # wimpy-setup
 
-Reproducible setup scripts for **wimpy** (Ryzen 7 7700 / 32GB / dual GPU:
-AMD R9700 32GB + NVIDIA RTX 5060 Ti 16GB). Wimpy is the bare metal inference
-and VM host, running both GPUs concurrently. See `HARDWARE.md` for full specs.
+Reproducible setup scripts for **wimpy** (ASRock X870 Taichi Creator / Ryzen 9
+9900X / 64 GiB RAM / two AMD Radeon AI PRO R9700 cards, 32 GiB VRAM each).
+The current host exposes both R9700s to ROCm; no discrete NVIDIA GPU is currently
+detected. See `HARDWARE.md` for the verified host inventory and the legacy NVIDIA
+setup notes.
 
 > This is not a guide. It comes with no promise of support or assistance. It is merely a way for me to safely share my setup in a manner I can restore my system with and perhaps give others some inspiration.
 
@@ -322,11 +324,25 @@ hf auth login        # paste a token from https://huggingface.co/settings/tokens
 Do NOT commit token files to the repo. `.gitignore` blocks `*token*` and `*.env`
 for this reason. The token is stored by the CLI in `~/.cache/huggingface/`.
 
-## Benchmarking
+## Current inference hardware
+
+This host currently has **two AMD Radeon AI PRO R9700 cards** (ROCm `gfx1201`,
+32 GiB VRAM each) and one Raphael iGPU. Both R9700s are discovered by ROCm.
+The repository's existing inference setup is a legacy single-R9700 / RTX 5060 Ti
+configuration: `llama-hugs-config.yaml` pins the AMD group to UUID
+`GPU-61fe9ba05af1939a` and has a separate CUDA group. That UUID belongs to the
+card at PCI `03:00.0`; the second R9700 at `07:00.0` has UUID
+`GPU-d30b00ae578952cd` and is not included in the current setup. NVIDIA GPU and
+driver are not detected, so the old CUDA model group is not currently usable.
+This host review did **not** change the running router or GPU configuration.
 
 A nightly systemd timer (`benching/llama-bench-nightly.timer`, 3:00 AM ET)
-sweeps every model on both GPUs (R9700 ROCm + RTX 5060 Ti CUDA) via
-`benching/run-nightly-bench.sh` and regenerates `benching/bench_results.html`.
+runs `benching/run-nightly-bench.sh` against the GPU targets currently encoded
+in its config and updates `benching/bench_results.html`. The checked-in setup
+and report descriptions still refer to the previous R9700 + RTX 5060 Ti layout;
+this host now has two R9700s and no detected NVIDIA GPU. Treat CUDA sweep results
+as historical until the script and model configs are deliberately revalidated
+for the current hardware.
 
 - **Rendered results:** <https://rahlquist.github.io/wimpy-setup/bench_results.html>
   (GitHub Pages copy of the report, refreshed each nightly run).
@@ -337,9 +353,16 @@ sweeps every model on both GPUs (R9700 ROCm + RTX 5060 Ti CUDA) via
   `benching/bench_summary.csv` (git-ignored); the sweep script only commits
   the two HTML copies.
 
-## Dual-GPU (R9700 + RTX 5060 Ti)
+## Legacy single-R9700 / RTX 5060 Ti setup
 
-Both GPUs serve inference at the same time, behind one `llama-hugs`:
+The following describes the repository's **previous** configuration, not the
+current host inventory above. It has not been revalidated for the two-R9700
+host. In particular, CUDA models cannot run until an NVIDIA GPU and driver are
+present, and the current router's AMD group still pins only the first R9700.
+Do not assume both cards are being used or change the GPU mapping without
+revalidating model placement and fit.
+
+Both GPUs served inference at the time this configuration was written, behind one `llama-hugs`:
 
 - **Two llama.cpp builds, isolated.** The ROCm/HIP build (`05-llama-cpp.sh`)
   installs to `/usr/local`; the CUDA build (`06-llama-cpp-cuda.sh`) installs to

@@ -3,27 +3,31 @@
 | Component | Detail |
 |-----------|--------|
 | Board     | ASRock X870 Taichi Creator (AM5) |
-| CPU       | AMD Ryzen 7 7700 — 8 cores / 8 threads (SMT currently disabled; part is 8c/16t capable) |
-| RAM       | 32 GiB DDR5-4800 (2 × 16 GiB; 2 slots free) |
-| GPU 0     | AMD Radeon AI PRO R9700 (Navi 48, gfx1201, 32 GB VRAM) — ROCm inference, PCI `03:00.0` |
-| GPU 1     | NVIDIA GeForce RTX 5060 Ti (GB206, Blackwell, 16 GB VRAM, `sm_120`) — reinstalled, PCI `04:00.0` |
-| iGPU      | AMD Raphael integrated graphics, PCI `73:00.0` (from the 7700 — available as a display head) |
-| Storage   | WD_BLACK SN770 2 TB NVMe (`/dev/nvme0n1`) |
-| NIC       | Aquantia AQC113 10 GbE (`lan0` — permanent MAC-pinned name via `10-lan.link`; kernel name drifted enp10s0→enp8s0 when PCI enumeration shifted, currently PCI `08:00.0`) — bridge uplink for `br0`; also onboard Realtek RTL8126 5 GbE (unused, kernel-named) |
+| CPU       | AMD Ryzen 9 9900X — 12 cores / 24 threads |
+| RAM       | 64 GiB (installed capacity; kernel reports 60.4 GiB usable) |
+| GPU 0     | AMD Radeon AI PRO R9700 (Navi 48, gfx1201, 32 GiB VRAM), PCI `03:00.0` |
+| GPU 1     | AMD Radeon AI PRO R9700 (Navi 48, gfx1201, 32 GiB VRAM), PCI `07:00.0` |
+| iGPU      | AMD Raphael integrated graphics, PCI `76:00.0` (2 GiB aperture; 0.8 GiB currently in use) |
+| NVIDIA    | No NVIDIA PCI display adapter or kernel driver is currently detected. NVIDIA/CUDA userspace packages remain installed, but `nvidia-smi` cannot communicate with a driver. |
+| Storage   | Predator SSD GM7000 4 TB NVMe (`/dev/nvme0n1`, system); WD_BLACK SN770 2 TB NVMe (`/dev/nvme1n1`, secondary) |
+| OS/kernel | CachyOS, x86-64; running kernel `7.3.1-1-cachyos` |
+| NIC       | Verify current interface and bridge mapping with `ip -br link`; older inventory below described the prior platform. |
 
-**Platform swap (2026-07-23):** the previous AM4 box (ASUS B550M / Ryzen 9
-3900X / 64 GiB DDR4 / GT 710 display) was replaced with the ASRock X870 /
-Ryzen 7 7700 / 32 GiB DDR5 build above. Consequences to be aware of:
-- **RAM halved (64 → 32 GiB)** and **cores down (12c/24t → 8c/8t).** MoE expert
-  offload to system RAM (`--n-cpu-moe`) has far less headroom now — re-tune and
-  re-check `rocm-smi`/free RAM before trusting the old per-model notes.
-- **The GT 710 is gone**; the Raphael iGPU (or the 5060 Ti) now drives display.
-  The GT 710 nouveau notes below are historical — kept for reference only.
-- **Both inference GPUs are now installed at once** (R9700 ROCm + 5060 Ti CUDA).
-  This is the dual-GPU case CLAUDE.md Hard Rule #2 flagged: the single
-  `HIP_VISIBLE_DEVICES=0`/`--device ROCm0` pin must be revisited so the two
-  devices don't collide. **Decision still pending — do not assume the old pin
-  is correct.** NVIDIA driver/CUDA toolkit packages remain installed.
+**Platform swap (2026-11-02):** live inspection now shows a Ryzen 9 9900X,
+64 GiB installed RAM, and two AMD Radeon AI PRO R9700 cards at PCI `03:00.0`
+and `07:00.0`, both exposed as ROCm `gfx1201`. The Raphael iGPU is at
+`76:00.0`. No NVIDIA PCI GPU or loaded NVIDIA kernel module is present, and
+`nvidia-smi` cannot communicate with a driver; NVIDIA/CUDA packages remain
+installed, but CUDA serving is currently unavailable. The primary NVMe is now
+a 4 TB Predator GM7000 (`/dev/nvme0n1`); a 2 TB WD_BLACK SN770 is also present
+at `/dev/nvme1n1`. The host runs CachyOS kernel `7.3.1-1-cachyos`.
+
+The earlier July 2026 platform notes below are retained as history, not current
+hardware facts. In particular, the old Ryzen 7 7700 / 32 GiB / single-R9700 /
+RTX 5060 Ti inventory and the single-card ROCm pin are stale. Re-check GPU
+UUIDs, installed drivers, service config, and any model group before reusing
+older setup instructions. Current PCI addresses and kernel enumeration are
+observed values and can change after hardware or firmware changes.
 
 ## Partition layout
 | Device         | Size    | Role           |
